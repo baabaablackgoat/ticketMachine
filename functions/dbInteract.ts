@@ -28,7 +28,7 @@ export async function addUserTickets(user: Discord.User, val: number, con?: Mari
 			await con.query('INSERT INTO users(userID, ticketCount) VALUES (?, ?)', [user.id, val]);
 			return val;
 		} else {
-			let newTickets = rows[0].ticketCount + val >= 0 ? rows[0].ticketCount + val : 0;
+			let newTickets = Math.max(rows[0].ticketCount + val, 0);
 			await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [newTickets, user.id]);
 			return newTickets;
 		}
