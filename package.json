@@ -1,0 +1,28 @@
+{
+  "name": "bloomysticketmachine",
+  "version": "0.0.1",
+  "description": "a small discord bot for handling giveaways and raffles with ticket entries",
+  "main": "dist/run.js",
+  "dependencies": {
+    "discord.js": "^12.5.3",
+    "mariadb": "^2.5.3",
+    "string-argv": "^0.3.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "prestart": "npm run build",
+    "start": "node ./dist/run.js",
+    "build": "tsc --build ./tsconfig.json",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/baabaablackgoat/ticketraffle.git"
+  },
+  "author": "baa baa black goat",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/baabaablackgoat/ticketraffle/issues"
+  },
+  "homepage": "https://github.com/baabaablackgoat/ticketraffle#readme"
+}

@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"moduleResolution": "Node",
+		"outDir": "./dist/",
+		"target": "ES6",
+		"module": "CommonJS",
+		"newLine": "LF",
+        "removeComments": false,
+        "sourceMap": true,
+        "strict": false
+    },
+    "include": ["./run.ts", "./functions/*"],
+    "exclude": [
+        "node_modules"
+    ]
+}
