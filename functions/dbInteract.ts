@@ -84,3 +84,69 @@ export async function awardUserTickets(user: Discord.User, eventID: number): Pro
 	} catch (e) { throw new Error(`DB Error occurred during awardUserTickets: ${e}`) }
 	finally { if (con) con.release(); }
 }
+
+export async function createRaffle(displayMsg: Discord.Message, entryKeyword: string, entryCost = 1): Promise<boolean> {
+	let con: MariaDB.PoolConnection;
+	try {
+		con = await pool.getConnection();
+		const raffleRows = await con.query('SELECT raffleID FROM raffles WHERE active = true AND entryKeyword = ?', [entryKeyword])
+		if (raffleRows.length > 0) throw new Error(`Active raffle with keyword ${entryKeyword} exists.`);
+		await con.query('INSERT INTO raffles (displayMessageID, active, entryKeyword, cost) VALUES (?, true, ?, entryCost)', [displayMsg.id, entryKeyword]);
+		return true;
+	}
+	catch (e) { throw new Error(`DB Error occurred during createRaffle: ${e}`); }
+	finally { if (con) con.release(); }
+}
+
+export async function enterRaffle(user: Discord.User, entryKeyword: string, ticketAmount: number): Promise<number> { // returns users new ticket count
+	let con: MariaDB.PoolConnection;
+	try {
+		con = await pool.getConnection();
+		// find targeted raffle and it's cost
+		const raffleRows = await con.query('SELECT raffleID, cost FROM raffles WHERE active = true and entryKeyword = ?', [entryKeyword]);
+		if (raffleRows.length == 0) throw new Error(`No active raffle found with associated keyword ${entryKeyword}`);
+		const raffleID: number = raffleRows[0].raffleID;
+		const raffleCost: number = raffleRows[0].raffleCost;
+		// check if raffle entry fee has been met
+		if (raffleCost > ticketAmount) throw new Error(`User attempted to enter raffle with ${ticketAmount} which has min. ticket count of ${raffleCost}`);
+		// get user information (mostly ticket count)
+		const userRows = await con.query('SELECT ticketCount FROM users WHERE userID = ?', [user.id]);
+		let userTickets: number;
+		if (userRows.length == 0) con.query('INSERT INTO users(userID, ticketCount) VALUES (?, 0)', [user.id]); // add user with no tickets to the database to allow linking
+		userTickets = userRows.length > 0 ? userRows[0].ticketCount : 0;
+		// check if user has enough tickets to enter
+		if (raffleCost > userTickets) throw new Error(`User does not have enough tickets to enter. ${raffleCost} > ${userTickets}`);
+		// free raffles only: allow only one entry per person and fix entry amount to always be 1
+		if (raffleCost == 0) { 
+			const raffleEntryRows = await con.query('SELECT * FROM raffleEntries WHERE userID = ? AND raffleID = ?', [user.id, raffleID]);
+			if (raffleEntryRows.length > 0) throw new Error(`User is already entered into free raffle`);
+			ticketAmount = 1;
+		}
+		// begin raffle entry
+		con.beginTransaction();
+		await con.query('INSERT INTO raffleEntries(raffleID, userID, entryCount) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE entryCount = entryCount+?', [raffleID, user.id, ticketAmount, ticketAmount]);
+		if (raffleCost > 0) await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [userTickets - ticketAmount, user.id]);
+		con.commit();
+		// return new ticket balance to display raffle entry and new balance
+		return userTickets - ticketAmount;
+
+	} catch (e) { throw new Error(`DB Error occurred during enterRaffle: ${e}`); }
+	finally { if (con) con.release(); }
+
+
+}
+
+export async function resolveRaffle(entryKeyword: string): Promise<Array<object>> {
+	let con: MariaDB.PoolConnection;
+	try {
+		con = await pool.getConnection();
+		const raffleRows = await con.query('SELECT raffleID FROM raffles WHERE entryKeyword = ? AND active = true', [entryKeyword]);
+		if (raffleRows.length != 1) throw new Error(`Couldn't find raffle to resolve`);
+		const raffleID = raffleRows[0].raffleID;
+		const raffleEntries = await con.query('SELECT userID, entryCount FROM raffleEntries WHERE raffleID = ?', [raffleID]);
+		await con.query('UPDATE raffles SET active = false WHERE raffleID = ?', [raffleID]);
+		return raffleEntries.length > 0 ? raffleEntries.slice(0, raffleEntries.length - 1) : [];
+	}
+	catch (e) { throw new Error(`DB Error occurred durcing resolveRaffle: ${e}`); }
+	finally { if (con) con.release(); }
+}
