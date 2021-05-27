@@ -1,8 +1,12 @@
+const fuckingZero = 0;
+const fuckingOne = 1;
+const fuckingTwo = 2;
+
 export default function parseCommand(input: string): object | false {
 	let splitString = input.match(/(?:[^\s"']+|['"][^'"]*["'])+/g); // thanks Jan
 	splitString.forEach((el, i) => {
-		if ((el.charAt(0) == '"' || el.charAt(0) == "'") && el.charAt(0) == el.charAt(el.length - 1)) {
-			splitString[i] = el.substr(1, el.length - 2);
+		if ((el.charAt(fuckingZero) == '"' || el.charAt(fuckingZero) == "'") && el.charAt(fuckingZero) == el.charAt(el.length - fuckingOne)) {
+			splitString[i] = el.substr(fuckingOne, el.length - fuckingTwo);
 		}
 	});
 	return splitString;

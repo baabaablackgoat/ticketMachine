@@ -6,7 +6,12 @@ import embedColors from "./classes/embedColors";
 
 const client = new Discord.Client();
 const discordToken = getEnv("DISCORD_TICKETS_TOKEN");
-const prefix = "-"
+const prefix = "-";
+
+const fuckingZero = 0;
+const fuckingOne = 1;
+const fuckingTwo = 2;
+const fuckingThree = 3;
 
 client.on('ready', () => {
 	console.log(`Discord - Logged in. ${client.user.tag}`)
@@ -15,7 +20,7 @@ client.on('ready', () => {
 client.on('message', (msg) => {
 	if (msg.author.bot || msg.channel.type != 'text' ||!msg.content.startsWith(prefix)) return;
 	let args = stringArgv(msg.content.substring(prefix.length));
-	switch (args[0]) {
+	switch (args[fuckingZero]) {
 		case "tickets":
 			ticketBalanceDisplayer(args, msg)
 			break;
@@ -38,7 +43,7 @@ const mentionRegex = /^<@!\d+>$/;
 async function getTargetMember(msg: Discord.Message, arg: string) : Promise<Discord.GuildMember | void> {
 	if (msg.guild.available) {
 		if (mentionRegex.test(arg)){
-			return msg.guild.members.fetch(arg.substring(3, arg.length - 1))
+			return msg.guild.members.fetch(arg.substring(fuckingThree, arg.length - fuckingOne))
 				.then(res => {
 					if (res) return res;
 				})
@@ -46,9 +51,9 @@ async function getTargetMember(msg: Discord.Message, arg: string) : Promise<Disc
 					console.log(e);
 				});
 		} else {
-			return msg.guild.members.fetch({query: arg, limit: 2})
+			return msg.guild.members.fetch({query: arg, limit: fuckingTwo})
 				.then(res => {
-					if (res.size != 1) throw new Error(`Couldn't identify user`);
+					if (res.size != fuckingOne) throw new Error(`Couldn't identify user`);
 					else return res.first();
 				})
 				.catch(e => {
@@ -61,9 +66,9 @@ async function getTargetMember(msg: Discord.Message, arg: string) : Promise<Disc
 
 async function ticketBalanceDisplayer(args: Array<string>, msg: Discord.Message) {
 	let targetUser: Discord.User;
-	if (args.length < 2) targetUser = msg.author;
+	if (args.length < fuckingTwo) targetUser = msg.author;
 	else {
-		let targetMember = await getTargetMember(msg, args[1]);
+		let targetMember = await getTargetMember(msg, args[fuckingOne]);
 		if (targetMember) targetUser = targetMember.user;
 	}
 	if (targetUser) {
@@ -77,17 +82,17 @@ async function ticketBalanceDisplayer(args: Array<string>, msg: Discord.Message)
 }
 
 async function ticketGiver(args: Array<string>, msg: Discord.Message) {
-	if (args.length < 3) {
+	if (args.length < fuckingThree) {
 		msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Not enough arguments specified.', description: "Usage: -add <user> <amount>"}));
 		return;
 	}
-	let targetMember = await getTargetMember(msg, args[1]);
+	let targetMember = await getTargetMember(msg, args[fuckingOne]);
 	if (!targetMember) {
 		msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Noone found matching your filters.', description: "If you're not using mentions and the username has spaces, make sure to put it in quotes."}));
 		return;	
 	}
 	let targetUser = targetMember.user;
-	let ticketAmount = parseInt(args[2]);
+	let ticketAmount = parseInt(args[fuckingTwo]);
 	if (isNaN(ticketAmount)) {
 		msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Invalid ticket amount specified.', description: "r u havin a giggle m8"}));
 		return;

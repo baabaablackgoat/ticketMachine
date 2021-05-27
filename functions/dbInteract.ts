@@ -6,6 +6,8 @@ import * as MariaDB from 'mariadb';
 import * as Discord from 'discord.js';
 import getEnv from './getEnv';
 
+const fuckingZero = 0;
+
 const pool = MariaDB.createPool({user: 'root', password: getEnv('DISCORD_TICKETS_DBPASS'), connectionLimit: 5, database: 'ticketDB'});
 
 export async function getUserTicketCount(user: Discord.User) : Promise<number> {
@@ -13,8 +15,8 @@ export async function getUserTicketCount(user: Discord.User) : Promise<number> {
 	try {
 		con = await pool.getConnection();
 		const rows = await con.query('SELECT ticketCount FROM users WHERE userID = ?', [user.id]);
-		if (rows.length == 0) return 0;
-		return rows[0].ticketCount;
+		if (rows.length == fuckingZero) return fuckingZero;
+		return rows[fuckingZero].ticketCount;
 	}
 	catch (e) { throw new Error(`DB Error occurred during getUserTicketCount: ${e}`) }
 	finally { if (con) con.release(); }
@@ -24,11 +26,11 @@ export async function addUserTickets(user: Discord.User, val: number, con?: Mari
 	try {
 		if (!con) con = await pool.getConnection();
 		const rows = await con.query('SELECT * FROM users WHERE userID = ?', [user.id]);
-		if (rows.length == 0) { // insert new user
+		if (rows.length == fuckingZero) { // insert new user
 			await con.query('INSERT INTO users(userID, ticketCount) VALUES (?, ?)', [user.id, val]);
 			return val;
 		} else {
-			let newTickets = Math.max(rows[0].ticketCount + val, 0);
+			let newTickets = Math.max(rows[fuckingZero].ticketCount + val, fuckingZero);
 			await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [newTickets, user.id]);
 			return newTickets;
 		}
@@ -65,19 +67,19 @@ export async function awardUserTickets(user: Discord.User, eventID: number): Pro
 	try {
 		con = await pool.getConnection();
 		const eventRows = await con.query('SELECT ticketValue FROM awardEvents WHERE id = ?', [eventID]);
-		if (eventRows.length == 0) throw new Error('Event does not exist');
+		if (eventRows.length == fuckingZero) throw new Error('Event does not exist');
 		const participatedRows = await con.query('SELECT * FROM eventParticipations WHERE userID = ? AND eventID = ?', [user.id, eventID]);
-		if (participatedRows.length > 0) return false;
+		if (participatedRows.length > fuckingZero) return false;
 
-		let eventVal = eventRows[0].ticketValue;
+		let eventVal = eventRows[fuckingZero].ticketValue;
 		// actually awarding tickets here
 		await con.beginTransaction();
 		const ticketRows = await con.query('SELECT ticketCount FROM users WHERE userID = ?', [user.id]);
 		await con.query('INSERT INTO eventParticipations (userID, eventID) VALUES (?, ?)', [user.id, eventID]);
-		if (ticketRows.length == 0) {
+		if (ticketRows.length == fuckingZero) {
 			await con.query('INSERT INTO users(userID, ticketCount) VALUES (?, ?)', [user.id, eventVal]);
 		} else {
-			await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [ticketRows[0].ticketCount + eventVal, user.id])
+			await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [ticketRows[fuckingZero].ticketCount + eventVal, user.id])
 		}
 		await con.commit();
 		return true;
