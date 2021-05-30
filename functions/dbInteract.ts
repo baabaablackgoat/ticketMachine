@@ -91,7 +91,7 @@ export async function createRaffle(displayMsg: Discord.Message, entryKeyword: st
 		con = await pool.getConnection();
 		const raffleRows = await con.query('SELECT raffleID FROM raffles WHERE active = true AND entryKeyword = ?', [entryKeyword])
 		if (raffleRows.length > 0) throw new Error(`Active raffle with keyword ${entryKeyword} exists.`);
-		await con.query('INSERT INTO raffles (displayMessageID, active, entryKeyword, cost) VALUES (?, true, ?, entryCost)', [displayMsg.id, entryKeyword]);
+		await con.query('INSERT INTO raffles (displayMessageID, active, entryKeyword, cost) VALUES (?, true, ?, ?)', [displayMsg.id, entryKeyword, entryCost]);
 		return true;
 	}
 	catch (e) { throw new Error(`DB Error occurred during createRaffle: ${e}`); }
