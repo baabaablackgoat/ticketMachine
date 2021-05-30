@@ -32,11 +32,15 @@ client.on('message', (msg) => {
 		case "raffle":
 		case "newraffle":
 		case "createraffle":
+		case "create":
 			raffleCreator(args, msg);
 			break;
 		case "join":
 		case "enter":
 			raffleEnterer(args, msg);
+			break;
+		case "resolve":
+			raffleResolver(args, msg);
 			break;
 	}
 });
@@ -57,8 +61,9 @@ function intCheck(a: number) : boolean {
 	return !(Number.isNaN(a) || a > ((2**31)-1) || a < (-1)*((2**31)-1))
 }
 
-const mentionRegex = /^<@!\d+>$/;
+
 async function getTargetMember(msg: Discord.Message, arg: string) : Promise<Discord.GuildMember | void> {
+	const mentionRegex = /^<@!\d+>$/;
 	if (msg.guild.available) {
 		if (mentionRegex.test(arg)){
 			return msg.guild.members.fetch(arg.substring(3, arg.length - 1))
@@ -145,7 +150,15 @@ async function raffleCreator(args: Array<string>, msg: Discord.Message) {
 		return;
 	}
 	let entryKeyword : string = args[1];
+	if (entryKeyword.length == 0 || entryKeyword.length > 100) {
+		raffleCreatorArgsErr('Specified keyword is invalid.', msg);
+		return;
+	}
 	let raffleDescription : string = args[2] ? args[2] : entryKeyword;
+	if (raffleDescription.length > 256) {
+		raffleCreatorArgsErr('Your description is too long. Please limit yourself to 256 characters or less.', msg);
+		return;
+	}
 	let entryCost = 1;
 	if (args.length >= 4) {
 		entryCost = parseInt(args[3]);
@@ -170,8 +183,10 @@ async function raffleCreator(args: Array<string>, msg: Discord.Message) {
 					if (success) {
 						targetMsg.edit('', new Discord.MessageEmbed({
 							color: embedColors.Default,
+							author: {name: 'A wild raffle has appeared!', iconURL: client.user.avatarURL()},
 							title: raffleDescription,
-							description: `Enter the raffle with \`${prefix}enter ${entryKeyword} <ticketAmount>\`\nMinimum entry fee: ${entryCost} 🎟`
+							description: `Enter the raffle with \`${prefix}enter ${entryKeyword} <ticketAmount>\`\nMinimum entry fee: ${entryCost} 🎟`,
+							fields: [{name: 'Entries', value: 0}]
 						}))
 						.then(targetMsg => {
 							if (targetChannel != msg.channel) {
@@ -186,8 +201,11 @@ async function raffleCreator(args: Array<string>, msg: Discord.Message) {
 					}
 				})
 				.catch(e => {
-					msg.channel.send(new Discord.MessageEmbed({color: embedColors.Error, title: 'Failed to create new raffle', description: `Database returned error: ${e}`,}))
-						.catch(e => console.log(`Couldn't send message: ${e}`));
+					if (e.message.includes('Active raffle with keyword exists')) raffleCreatorArgsErr('An active raffle with this keyword already exists', msg);
+					else {
+						raffleCreatorArgsErr('Something went wrong. The error has been dumped to console.', msg);
+						console.log(e);
+					}
 					targetMsg.delete({reason: 'Raffle creation failed, cleaning up'}).catch(e => {console.log(`Failed to delete message: ${e}`)});
 				});
 		})
@@ -216,6 +234,10 @@ async function raffleEnterer(args : Array<string>, msg: Discord.Message) : Promi
 		raffleEnterArgsErr('No raffle keyword specified.', msg);
 		return;
 	}
+	if (args[1].length == 0 || args[1].length > 100) {
+		raffleEnterArgsErr('Invalid keyword specified.', msg);
+		return;
+	}
 	let entryAmount : number | undefined;
 	if (args.length >= 3) {
 		entryAmount = parseInt(args[2]);
@@ -225,19 +247,34 @@ async function raffleEnterer(args : Array<string>, msg: Discord.Message) : Promi
 		}
 	}
 	db.enterRaffle(msg.author, args[1], entryAmount)
-		.then(newBalance => {
+		.then(res => {
 			msg.channel.send(new Discord.MessageEmbed({
 				color: embedColors.Ok,
+				author: {name:msg.author.username, iconURL: msg.author.avatarURL()},
 				title: `Entered raffle ${args[1]}.`,
-				description: `New ticket balance: ${newBalance} 🎟`
+				description: `New ticket balance: ${res.newBalance} 🎟`
 			})).catch(e => console.log(`Couldn't send message: ${e}`));
+			let displayMsgChannel = msg.guild.channels.resolve(res.channelID);
+			if (displayMsgChannel instanceof Discord.TextChannel) {
+				displayMsgChannel.messages.fetch(res.messageID)
+					.then(displayMsg => {
+						let embed : Discord.MessageEmbed = displayMsg.embeds[0];
+						embed.fields[0].value = String(parseInt(embed.fields[0].value) + res.entryAmount);
+						displayMsg.edit(embed).catch(e => {`Couldn't edit raffle display message: ${e}`});
+					})
+					.catch(e => {`Couldn't find raffle display message to edit: ${e}`})
+			}
 		})
 		.catch(e => {
 			if (e.message.includes('User does not have enough tickets to enter.')) raffleEnterArgsErr('You don\'t have enough tickets.', msg);
 			else if (e.message.includes('which has min. ticket count of')) raffleEnterArgsErr('You are trying to enter with too few tickets.', msg);
 			else if (e.message.includes('No active raffle found with associated keyword')) raffleEnterArgsErr('That raffle does not exist.', msg);
 			else if (e.message.includes('User is already entered into free raffle')) raffleEnterArgsErr('Free raffles can only have one entry per user.', msg);
-			else raffleEnterArgsErr('Something went wrong...', msg, e.message);
+			else {
+				raffleEnterArgsErr('Something went wrong...', msg, 'The error has been dumped to the console.');
+				console.log(e);
+			}
+
 		});
 }
 
@@ -253,7 +290,115 @@ function raffleEnterArgsErr(errType: string, msg: Discord.Message, details? : st
 		.catch(e => {console.log(`Couldn't send message: ${e}`)});
 }
 
+interface distributionEntry {
+	userID: string,
+	min: number,
+	max: number
+}
 
+function randomInt(min: number, max: number) { //MDN
+	min = Math.ceil(min);
+	max = Math.floor(max);
+	return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function findWinnerInArray(list: Array<distributionEntry>, value: number): string | null {
+	let found = null;
+	for (let i=0; i<list.length; i++) {
+		if (value >= list[i].min && value <= list[i].max) {
+			found = list[i].userID;
+			break;
+		}
+	}
+	return found;
+}
+
+async function raffleResolver(args: Array<string>, msg: Discord.Message) {
+	if (!authorHasPermission(msg)) return;
+	if (args.length < 2) {
+		raffleResolverArgsErr('You didn\'t specify which raffle to resolve', msg);
+		return;
+	}
+	if (args[1].length < 0 || args[1].length > 100) {
+		raffleResolverArgsErr('Invalid keyword specified.', msg);
+		return;
+	}
+	let winnerCount = 1;
+	if (args.length >= 3) {
+		winnerCount = parseInt(args[2]);
+		if (!intCheck(winnerCount)) {
+			raffleResolverArgsErr('Invalid winner count specified.', msg);
+			return;
+		}
+	}
+	let allowDuplicates = false;
+	if (args.length >= 4 && args[4] in ['y', 'yes', 'true', 'duplicates', 'dupes']) allowDuplicates = true;
+
+	db.resolveRaffle(args[1]).then(async res => {
+		let displayMsgChannel = msg.guild.channels.resolve(res.channelID);
+		if (!(displayMsgChannel instanceof Discord.TextChannel)) return; // should always be true so never fires, this is for typescript to stop crying
+		let displayMsg : Discord.Message = await displayMsgChannel.messages.fetch(res.messageID);
+		// no entries
+		if (res.entries.length == 0) {
+			displayMsg.edit(new Discord.MessageEmbed({
+				color: embedColors.Warning,
+				title: `This raffle ${args[1]} has closed!`,
+				description: `Noone participated...`
+			})).catch(e => {`Couldn't edit the resolved raffle: ${e}`});
+			msg.channel.send(new Discord.MessageEmbed({
+				color: embedColors.Warning,
+				title: 'The results are in!',
+				description: `The raffle ${args[1]} was closed, but noone participated.`,
+			})).catch(e => {`The raffle was resolved but the resolve message couldn't be sent.\nSelected winners were ${winnerUsernames.join(',')}\nError: ${e}`});
+			return;
+		}
+
+
+		let winnerIDs : Array<string> = []
+		let totalEntries = 0;
+		let distribution : Array<distributionEntry> = [];
+		res.entries.forEach(el => {
+			distribution.push({userID: el.userID, min: totalEntries + 1, max: totalEntries + el.entryCount})
+			totalEntries += el.entryCount;
+		});
+		while (winnerIDs.length < winnerCount) {
+			if (!allowDuplicates && winnerIDs.length >= res.entries.length) break;
+			if (allowDuplicates && winnerIDs.length >= totalEntries) break;
+			let newWinner = findWinnerInArray(distribution,randomInt(1, totalEntries));
+			if (!newWinner) continue; // should theoretically never happen
+			if (!allowDuplicates && winnerIDs.includes(newWinner)) continue;
+			winnerIDs.push(newWinner);
+		}
+		let winnerUsernames : Array<string> = await Promise.all(winnerIDs.map(async id => {
+			let member = await msg.guild.members.fetch(id);
+			if (member != undefined) return member.user.tag;
+		}));
+
+		displayMsg.edit(new Discord.MessageEmbed({
+			color: embedColors.Ok,
+			title: `This raffle ${args[1]} has closed!`,
+			description: `Winners:\n${winnerUsernames.join('\n')}`
+		})).catch(e => {`Couldn't edit the resolved raffle: ${e}`})
+		
+		msg.channel.send(new Discord.MessageEmbed({
+			color: embedColors.Ok,
+			title: 'The results are in!',
+			description: `The raffle ${args[1]} was closed.`,
+			fields: [{name: 'Winners', value: winnerUsernames.join('\n')}]
+		})).catch(e => {`The raffle was resolved but the resolve message couldn't be sent.\nSelected winners were ${winnerUsernames.join(',')}\nError: ${e}`});
+	}).catch(e => {
+		if (e.message.includes('Couldn\'t find raffle to resolve')) raffleResolverArgsErr('Couldn\'t find your specified raffle.', msg)
+		else raffleResolverArgsErr('Something went wrong...', msg, 'The error has been dumped to the console.');
+		console.log(e);
+	})
+
+}
+
+function raffleResolverArgsErr(errType: string, msg: Discord.Message, details?: string) {
+	msg.channel.send(new Discord.MessageEmbed({
+		color: embedColors.Error, title: errType, description: details ? details : `To resolve a raffle, use the keyword you've specified on raffle creation like this:\n\`${prefix}resolve keyword\``,
+	})).catch(e => {console.log(`Couldn't send message: ${e}`)});
+}
 
 function showCredits(args: Array<string>, msg: Discord.Message): void {
 	msg.channel.send(new Discord.MessageEmbed({
