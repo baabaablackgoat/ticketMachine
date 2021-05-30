@@ -406,6 +406,7 @@ function raffleResolverArgsErr(errType: string, msg: Discord.Message, details?: 
 }
 
 function eventCreator(args: Array<string>, msg: Discord.Message){
+	if (!authorHasPermission(msg)) return;
 	if (msg.channel.type != 'text') return;
 	let ticketCount = 1;
 	if (args.length >= 2) {
