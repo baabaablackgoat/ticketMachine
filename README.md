@@ -4,6 +4,7 @@ A smaller discord.js bot made for bloomy that handles a ticket-like currency to 
 ## Requirements
 - node.js
 - MariaDB (docker works just fine)
+- Typescript `npm install -g typescript`
 
 ## Installation
 1. `npm install`
