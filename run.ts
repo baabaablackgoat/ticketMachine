@@ -42,6 +42,11 @@ client.on('message', (msg) => {
 		case "resolve":
 			raffleResolver(args, msg);
 			break;
+		case "event":
+		case "createevent":
+		case "newevent":
+			eventCreator(args, msg);
+			break;
 	}
 });
 
@@ -398,6 +403,90 @@ function raffleResolverArgsErr(errType: string, msg: Discord.Message, details?: 
 	msg.channel.send(new Discord.MessageEmbed({
 		color: embedColors.Error, title: errType, description: details ? details : `To resolve a raffle, use the keyword you've specified on raffle creation like this:\n\`${prefix}resolve keyword\``,
 	})).catch(e => {console.log(`Couldn't send message: ${e}`)});
+}
+
+function eventCreator(args: Array<string>, msg: Discord.Message){
+	if (msg.channel.type != 'text') return;
+	let ticketCount = 1;
+	if (args.length >= 2) {
+		ticketCount = parseInt(args[1]);
+		if (!intCheck(ticketCount) || ticketCount < 1) {
+			eventCreatorArgsErr('Invalid ticket amount specified.', msg);
+			return;
+		}
+	}
+	let targetChannel : Discord.TextChannel = msg.channel;
+	if (args.length >= 3) {
+		let temp = resolveGuildChannel(args[2], msg.guild);
+		if (!temp) {
+			eventCreatorArgsErr('Could not resolve channel.',msg);
+			return;
+		} 
+		targetChannel = temp ? temp : msg.channel; // typescript pls
+	}
+	let description = 'A pile of tickets lies on the ground.'
+	if (args.length >= 4) {
+		if (args[3].length > 256) {
+			eventCreatorArgsErr('Your description is too long. Please limit yourself to 256 characters or less.', msg);
+			return;
+		}
+		description = args[3];
+	}
+	let minutes = 60;
+	if (args.length >= 5) {
+		minutes = parseInt(args[4]);
+		if (!intCheck(minutes) || minutes < 1 || minutes > 1440) {
+			eventCreatorArgsErr('Your timeout is invalid. Please use values between 1 and 1440 minutes (= 24 hours)', msg);
+			return;
+		}
+	}
+	let timeout = minutes * 60000;
+
+	db.createEvent(ticketCount)
+		.then(eventID => {
+			targetChannel.send(new Discord.MessageEmbed({
+				color: embedColors.Default,
+				title: description,
+				description: `To collect your ${ticketCount} 🎟, react with 🎟`,
+			}))
+				.then(collectorMessage => {
+					collectorMessage.react('🎟').catch(e => `Failed to react on collection message: ${e}`);
+					const filter = (reaction: Discord.MessageReaction, user: Discord.User) => reaction.emoji.name == '🎟' && !user.bot;
+					const eventCollector = collectorMessage.createReactionCollector(filter, {time: timeout});
+					eventCollector.on('collect', (r, u) => {
+						db.awardUserTickets(u, eventID)
+							.catch(e => console.log(`Failed to award user with tickets for event ID ${eventID}: ${e}`))
+					});
+					eventCollector.on('end', (c, reason) => {
+						collectorMessage.edit(new Discord.MessageEmbed({
+							color: embedColors.Info,
+							title: 'This ticket awarding ceremony has ended!',
+						}));
+						console.log(`Award ceremony for eventID ${eventID} has concluded: ${reason}`);
+					});
+				})
+				.catch(e => {
+					eventCreatorArgsErr('Something went wrong... The error was dumped to console.', msg);
+					console.log(`Couldn't send event message: ${e}`)
+				});
+		})
+		.catch(e => {
+			eventCreatorArgsErr('Something went wrong... The error was dumped to console.', msg);
+			console.log(e);
+		})
+}
+
+function eventCreatorArgsErr(errType: string, msg: Discord.Message) {
+	msg.channel.send(new Discord.MessageEmbed({
+		color: embedColors.Error, title: errType, description: "Event creation takes between none and four arguments, in this order:",
+		fields: [
+			{name: 'Ticket amount', value: 'Defaults to 1. If specified, will assign this many tickets on reaction.'},
+			{name: 'Channel', value: 'Defaults to where your invoking message is sent. Configures where the message is going to be visible.'},
+			{name: 'Description', value: 'Defaults to a small blurb, otherwise replaces the title of the message.'},
+			{name: 'Expiry time', value: 'Defaults to one hour, maxes out at 24 hours. Specifies for how long (in minutes) tickets may be redeemed.'},
+		]
+	}))
+		.catch(e => {console.log(`Couldn't send message: ${e}`)});
 }
 
 function showCredits(args: Array<string>, msg: Discord.Message): void {
