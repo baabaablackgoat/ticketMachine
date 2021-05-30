@@ -28,7 +28,7 @@ export async function addUserTickets(user: Discord.User, val: number, con?: Mari
 			await con.query('INSERT INTO users(userID, ticketCount) VALUES (?, ?)', [user.id, val]);
 			return val;
 		} else {
-			let newTickets = Math.max(rows[0].ticketCount + val, 0);
+			let newTickets = Math.min(Math.max(rows[0].ticketCount + val, 0), 2**31 - 1);
 			await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [newTickets, user.id]);
 			return newTickets;
 		}
@@ -77,7 +77,7 @@ export async function awardUserTickets(user: Discord.User, eventID: number): Pro
 		if (ticketRows.length == 0) {
 			await con.query('INSERT INTO users(userID, ticketCount) VALUES (?, ?)', [user.id, eventVal]);
 		} else {
-			await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [ticketRows[0].ticketCount + eventVal, user.id])
+			await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [Math.min(ticketRows[0].ticketCount + eventVal, 2**31 - 1), user.id])
 		}
 		await con.commit();
 		return true;
@@ -98,7 +98,7 @@ export async function createRaffle(displayMsg: Discord.Message, entryKeyword: st
 	finally { if (con) con.release(); }
 }
 
-export async function enterRaffle(user: Discord.User, entryKeyword: string, ticketAmount: number): Promise<number> { // returns users new ticket count
+export async function enterRaffle(user: Discord.User, entryKeyword: string, ticketAmount?: number): Promise<number> { // returns users new ticket count
 	let con: MariaDB.PoolConnection;
 	try {
 		con = await pool.getConnection();
@@ -106,7 +106,9 @@ export async function enterRaffle(user: Discord.User, entryKeyword: string, tick
 		const raffleRows = await con.query('SELECT raffleID, cost FROM raffles WHERE active = true and entryKeyword = ?', [entryKeyword]);
 		if (raffleRows.length == 0) throw new Error(`No active raffle found with associated keyword ${entryKeyword}`);
 		const raffleID: number = raffleRows[0].raffleID;
-		const raffleCost: number = raffleRows[0].raffleCost;
+		const raffleCost: number = raffleRows[0].cost;
+		// If no ticket amount was specified, assume minimum entry cost
+		if (ticketAmount === undefined) ticketAmount = raffleCost;
 		// check if raffle entry fee has been met
 		if (raffleCost > ticketAmount) throw new Error(`User attempted to enter raffle with ${ticketAmount} which has min. ticket count of ${raffleCost}`);
 		// get user information (mostly ticket count)
@@ -117,7 +119,7 @@ export async function enterRaffle(user: Discord.User, entryKeyword: string, tick
 		// check if user has enough tickets to enter
 		if (raffleCost > userTickets) throw new Error(`User does not have enough tickets to enter. ${raffleCost} > ${userTickets}`);
 		// free raffles only: allow only one entry per person and fix entry amount to always be 1
-		if (raffleCost == 0) { 
+		if (raffleCost == 0) {
 			const raffleEntryRows = await con.query('SELECT * FROM raffleEntries WHERE userID = ? AND raffleID = ?', [user.id, raffleID]);
 			if (raffleEntryRows.length > 0) throw new Error(`User is already entered into free raffle`);
 			ticketAmount = 1;
@@ -128,7 +130,7 @@ export async function enterRaffle(user: Discord.User, entryKeyword: string, tick
 		if (raffleCost > 0) await con.query('UPDATE users SET ticketCount = ? WHERE userID = ?', [userTickets - ticketAmount, user.id]);
 		con.commit();
 		// return new ticket balance to display raffle entry and new balance
-		return userTickets - ticketAmount;
+		return raffleCost > 0 ? userTickets - ticketAmount : userTickets;
 
 	} catch (e) { throw new Error(`DB Error occurred during enterRaffle: ${e}`); }
 	finally { if (con) con.release(); }

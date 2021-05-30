@@ -34,6 +34,10 @@ client.on('message', (msg) => {
 		case "createraffle":
 			raffleCreator(args, msg);
 			break;
+		case "join":
+		case "enter":
+			raffleEnterer(args, msg);
+			break;
 	}
 });
 
@@ -47,6 +51,10 @@ function authorHasPermission(msg: Discord.Message) : boolean {
 		return false;
 	}
 	return true;
+}
+
+function intCheck(a: number) : boolean {
+	return !(Number.isNaN(a) || a > ((2**31)-1) || a < (-1)*((2**31)-1))
 }
 
 const mentionRegex = /^<@!\d+>$/;
@@ -116,7 +124,7 @@ async function ticketGiver(args: Array<string>, msg: Discord.Message): Promise<v
 	}
 	let targetUser = targetMember.user;
 	let ticketAmount = parseInt(args[2]);
-	if (isNaN(ticketAmount)) {
+	if (!intCheck(ticketAmount)) {
 		msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Invalid ticket amount specified.', description: "Make sure to specify an *integer* for the ticket amount."}))
 			.catch(e => {console.log(`Couldn't send message: ${e}`)});
 		return;
@@ -141,7 +149,7 @@ async function raffleCreator(args: Array<string>, msg: Discord.Message) {
 	let entryCost = 1;
 	if (args.length >= 4) {
 		entryCost = parseInt(args[3]);
-		if (isNaN(entryCost) || entryCost < 0) {
+		if (!intCheck(entryCost) || entryCost < 0) {
 			raffleCreatorArgsErr('Entry cost is invalid.', msg);
 			return;
 		}
@@ -202,6 +210,50 @@ function raffleCreatorArgsErr(errType: string, msg: Discord.Message) {
 	}))
 		.catch(e => {console.log(`Couldn't send message: ${e}`)});
 }
+
+async function raffleEnterer(args : Array<string>, msg: Discord.Message) : Promise<void> {
+	if (args.length < 2) {
+		raffleEnterArgsErr('No raffle keyword specified.', msg);
+		return;
+	}
+	let entryAmount : number | undefined;
+	if (args.length >= 3) {
+		entryAmount = parseInt(args[2]);
+		if (!intCheck(entryAmount) || entryAmount < 0) {
+			raffleEnterArgsErr('Invalid ticket amount specified.', msg);
+			return;
+		}
+	}
+	db.enterRaffle(msg.author, args[1], entryAmount)
+		.then(newBalance => {
+			msg.channel.send(new Discord.MessageEmbed({
+				color: embedColors.Ok,
+				title: `Entered raffle ${args[1]}.`,
+				description: `New ticket balance: ${newBalance} 🎟`
+			})).catch(e => console.log(`Couldn't send message: ${e}`));
+		})
+		.catch(e => {
+			if (e.message.includes('User does not have enough tickets to enter.')) raffleEnterArgsErr('You don\'t have enough tickets.', msg);
+			else if (e.message.includes('which has min. ticket count of')) raffleEnterArgsErr('You are trying to enter with too few tickets.', msg);
+			else if (e.message.includes('No active raffle found with associated keyword')) raffleEnterArgsErr('That raffle does not exist.', msg);
+			else if (e.message.includes('User is already entered into free raffle')) raffleEnterArgsErr('Free raffles can only have one entry per user.', msg);
+			else raffleEnterArgsErr('Something went wrong...', msg, e.message);
+		});
+}
+
+function raffleEnterArgsErr(errType: string, msg: Discord.Message, details? : string) {
+	let embed = new Discord.MessageEmbed({color: embedColors.Error, title: errType, description: details ? details : "Joining raffles takes either one or two arguments:"});
+	if (!details) {
+		embed.fields = [
+			{name: 'Keyword', value: 'The keyword to enter the raffle.', inline: false},
+			{name: 'Ticket amount', value: 'Defaults to the minimum amount of tickets. If a raffle has an entry fee, you can use multiple tickets (as long as you meet the entry fee) to get more entries into the raffle.', inline: false}
+		];
+	}
+	msg.channel.send(embed)
+		.catch(e => {console.log(`Couldn't send message: ${e}`)});
+}
+
+
 
 function showCredits(args: Array<string>, msg: Discord.Message): void {
 	msg.channel.send(new Discord.MessageEmbed({
