@@ -12,14 +12,14 @@ A smaller discord.js bot made for bloomy that handles a ticket-like currency to 
 3. Set the following environment variables:
 - `DISCORD_TICKETS_DBPASS` for your database password
 - `DISCORD_TICKETS_TOKEN` as the discord bot token
+- `DISCORD_TICKETS_PREFIX` as the desired prefix (will be deprecated once slash commands come around)
 4. `npm run start`
 
 ## Usage/Commands
-The prefix defaults to `-` - if so desired, it can be reconfigured in run.ts.
-
 For most commands, help is available if no or invalid arguments are specified.
 
 Arguments in \[square brackets\] are required, \(round brackets\) are optional.
+Examples below assume a set prefix of `-`.
 
 - `-bal (user)`: Displays the users' ticket balance.
 - `-join [keyword] (tickets)`: Join an active raffle using the raffle keyword.
