@@ -6,7 +6,7 @@ import embedColors from "./classes/embedColors";
 
 const client = new Discord.Client();
 const discordToken = getEnv("DISCORD_TICKETS_TOKEN");
-const prefix = "+"
+const prefix = getEnv("DISCORD_TICKETS_PREFIX");
 
 client.on('ready', () => {
 	console.log(`Discord - Logged in. ${client.user.tag}`)
