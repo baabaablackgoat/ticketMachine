@@ -6,7 +6,7 @@ import embedColors from "./classes/embedColors";
 
 const client = new Discord.Client();
 const discordToken = getEnv("DISCORD_TICKETS_TOKEN");
-const prefix = "-"
+const prefix = "+"
 
 client.on('ready', () => {
 	console.log(`Discord - Logged in. ${client.user.tag}`)
@@ -15,6 +15,7 @@ client.on('ready', () => {
 client.on('message', (msg) => {
 	if (msg.author.bot || msg.channel.type != 'text' ||!msg.content.startsWith(prefix)) return;
 	let args = stringArgv(msg.content.substring(prefix.length));
+	if (args.length == 0 || args[0].length == 0) return;
 	switch (args[0].toLowerCase()) {
 		case "tickets":
 		case "bal":
@@ -68,10 +69,12 @@ function intCheck(a: number) : boolean {
 
 
 async function getTargetMember(msg: Discord.Message, arg: string) : Promise<Discord.GuildMember | void> {
-	const mentionRegex = /^<@!\d+>$/;
+	const mentionRegex = /^<@!?\d+>$/; // Notice: If the user has a set nickname, the mention has an additional !-mark after the @.
 	if (msg.guild.available) {
 		if (mentionRegex.test(arg)){
-			return msg.guild.members.fetch(arg.substring(3, arg.length - 1))
+			arg = arg.slice(2,-1); // trim the always existing mention flags
+			if (arg.startsWith('!')) { arg = arg.slice(1); } // trim nickname exclamation mark if necessary
+			return msg.guild.members.fetch(arg)
 				.then(res => {
 					if (res) return res;
 				})
@@ -342,19 +345,26 @@ async function raffleResolver(args: Array<string>, msg: Discord.Message) {
 	db.resolveRaffle(args[1]).then(async res => {
 		let displayMsgChannel = msg.guild.channels.resolve(res.channelID);
 		if (!(displayMsgChannel instanceof Discord.TextChannel)) return; // should always be true so never fires, this is for typescript to stop crying
-		let displayMsg : Discord.Message = await displayMsgChannel.messages.fetch(res.messageID);
+		let displayMsg : Discord.Message;
+		try {
+			displayMsg = await displayMsgChannel.messages.fetch(res.messageID);
+		} catch (e) {
+			console.log(`The message initiating the raffle could not be found. Resolving the raffle will be continued. Error: ${e}`);
+		}
 		// no entries
 		if (res.entries.length == 0) {
-			displayMsg.edit(new Discord.MessageEmbed({
-				color: embedColors.Warning,
-				title: `This raffle ${args[1]} has closed!`,
-				description: `Noone participated...`
-			})).catch(e => {`Couldn't edit the resolved raffle: ${e}`});
+			if (displayMsg) {
+				displayMsg.edit(new Discord.MessageEmbed({
+					color: embedColors.Warning,
+					title: `This raffle ${args[1]} has closed!`,
+					description: `Noone participated...`
+				})).catch(e => {`Couldn't edit the resolved raffle: ${e}`});
+			}
 			msg.channel.send(new Discord.MessageEmbed({
 				color: embedColors.Warning,
 				title: 'The results are in!',
 				description: `The raffle ${args[1]} was closed, but noone participated.`,
-			})).catch(e => {`The raffle was resolved but the resolve message couldn't be sent.\nSelected winners were ${winnerUsernames.join(',')}\nError: ${e}`});
+			})).catch(e => {`The raffle was resolved with no participants, but the message acquitting this couldn't be sent. \nError: ${e}`});
 			return;
 		}
 
@@ -377,14 +387,15 @@ async function raffleResolver(args: Array<string>, msg: Discord.Message) {
 		let winnerUsernames : Array<string> = await Promise.all(winnerIDs.map(async id => {
 			let member = await msg.guild.members.fetch(id);
 			if (member != undefined) return member.user.tag;
+			else return id;
 		}));
-
-		displayMsg.edit(new Discord.MessageEmbed({
-			color: embedColors.Ok,
-			title: `This raffle ${args[1]} has closed!`,
-			description: `Winners:\n${winnerUsernames.join('\n')}`
-		})).catch(e => {`Couldn't edit the resolved raffle: ${e}`})
-		
+		if (displayMsg) {
+			displayMsg.edit(new Discord.MessageEmbed({
+				color: embedColors.Ok,
+				title: `This raffle ${args[1]} has closed!`,
+				description: `Winners:\n${winnerUsernames.join('\n')}`
+			})).catch(e => {`Couldn't edit the resolved raffle: ${e}`})
+		}
 		msg.channel.send(new Discord.MessageEmbed({
 			color: embedColors.Ok,
 			title: 'The results are in!',
