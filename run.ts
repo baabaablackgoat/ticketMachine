@@ -4,154 +4,259 @@ import getEnv from "./functions/getEnv";
 import * as db from "./functions/dbInteract";
 import embedColors from "./classes/embedColors";
 
-const client = new Discord.Client();
+const client = new Discord.Client({intents: [Discord.Intents.FLAGS.GUILD_MESSAGES]});
 const discordToken = getEnv("DISCORD_TICKETS_TOKEN");
-const prefix = getEnv("DISCORD_TICKETS_PREFIX");
+const allCommands: Array<Discord.ApplicationCommandData> = [
+	// balance command
+	{
+		name: 'bal',
+		description: 'Shows how many tickets you have. 🛠 can check anybody\'s balance.',
+		options: [{
+			name: 'user',
+			type: 'USER',
+			description: '🛠 The user to check for.',
+			required: false
+		}]
+	},
+	// give command
+	{
+		name: 'give',
+		description: '🛠 Give or deduct tickets from any user.',
+		options: [{
+			name: 'user',
+			type: 'USER',
+			description: 'The user to target.',
+			required: true
+			},{
+			name: 'amount',
+			type: 'INTEGER',
+			description: 'The amount of tickets to add or remove (use negative value to remove).',
+			required: true
+		}]
+	},
+	// credits command
+	{
+		name: 'credits',
+		description: 'Show some information about this bot',
+	},
+	// raffle command
+	{
+		name: 'createRaffle',
+		description: '🛠 Create a new raffle for users to participate in.',
+		options: [{
+			name: 'keyword',
+			type: 'STRING',
+			description: 'The keyword that refers to this raffle. No raffle with the same keyword may be unresolved!',
+			required: true
+		}, {
+			name: 'description',
+			type: 'STRING',
+			description: 'The text to display on the raffle message itself. Defaults to the keyword if omitted.',
+			required: false,
+		}, {
+			name: 'minEntryFee',
+			type: 'INTEGER',
+			description: 'The lowest amount of tickets to enter this fee. Set to 0 for free entry, one per user. Defaults to 1 if omitted.',
+			required: false,
+		}, {
+			name: 'targetChannel',
+			type: 'CHANNEL',
+			description: 'The text channel to send the raffle message in. Defaults to where this command is executed if omitted.',
+			required: false,
+		}]
+	},
+	// join command
+	{
+		name: 'join',
+		description: 'Join an ongoing raffle using the keyword!',
+		options: [{
+			name: 'keyword',
+			type: 'STRING',
+			description: 'The keyword associated with the raffle to enter.',
+			required: true
+		},{
+			name: 'ticketAmount',
+			type: 'INTEGER',
+			description: 'The amount of entries you would like to make. Defaults to the minimum amount if omitted.',
+			required: false
+		}]
+	},
+	// resolve command
+	{
+		name: 'resolve',
+		description: '🛠 Resolve a raffle using the given keyword.',
+		options: [{
+			name: 'keyword',
+			type: 'STRING',
+			description: 'The keyword associated with the raffle that shall be resolved.',
+			required: true
+		},{
+			name: 'winnerCount',
+			type: 'INTEGER',
+			description: 'The amount of winners to draw. Defaults to 1 if omitted.',
+			required: false
+		}]
+	},
+	// createEvent command
+	{
+		name: 'createEvent',
+		description: '🛠 Create a ticket redemption event for users to click on and get tickets with.',
+		options: [{
+			name: 'value',
+			type: 'INTEGER',
+			description: 'The amount of tickets to award. (Once per user per event.) Defaults to 1 if omitted.',
+			required: false
+		},{
+			name: 'messageChannel',
+			type: 'CHANNEL',
+			description: 'The text channel where the redemption event is to be created. Defaults to the channel where this command is executed.',
+			required: false
+		}, {
+			name: 'description',
+			type: 'STRING',
+			description: 'The text to display on the redemption event. Defaults to \'A pile of tickets lies on the ground.\'',
+			required: false
+		}, {
+			name: 'expiryTime',
+			type: 'INTEGER',
+			description: 'The amount of time this event can be redeemed for. Defaults to 24 hours if omitted.',
+			required: false
+		}]
+	}
+];
 
 client.on('ready', () => {
-	console.log(`Discord - Logged in. ${client.user.tag}`)
+	console.log(`Discord - Logged in. ${client.user.tag}`);
+	// todo: register slash commands here
+	// probably detect if it should be global or local based on npm execution
 });
 
-client.on('message', (msg) => {
-	if (msg.author.bot || msg.channel.type != 'text' ||!msg.content.startsWith(prefix)) return;
-	let args = stringArgv(msg.content.substring(prefix.length));
-	if (args.length == 0 || args[0].length == 0) return;
-	switch (args[0].toLowerCase()) {
-		case "tickets":
-		case "bal":
-		case "balance":
-			ticketBalanceDisplayer(args, msg)
-			break;
-		case "give":
-		case "add":
-			ticketGiver(args, msg);
-			break;
-		case "source":
-		case "credits":
-			showCredits(args, msg);
-			break;
-		case "raffle":
-		case "newraffle":
-		case "createraffle":
-		case "create":
-			raffleCreator(args, msg);
-			break;
-		case "join":
-		case "enter":
-			raffleEnterer(args, msg);
-			break;
-		case "resolve":
-			raffleResolver(args, msg);
-			break;
-		case "event":
-		case "createevent":
-		case "newevent":
-			eventCreator(args, msg);
-			break;
+client.on('interactionCreate', interaction => {
+	if (interaction.isCommand()) { // Slash command interactions
+		switch (interaction.commandName) {
+			case 'bal':
+				ticketBalanceDisplayer(interaction);
+				break;
+			case 'give':
+				ticketGiver(interaction);
+				break;
+			case 'credits':
+				showCredits(interaction);
+				break;
+			case 'createRaffle':
+				raffleCreator(interaction);
+				break;
+			case 'join':
+				raffleEnterer(interaction);
+				break;
+			case 'resolve':
+				raffleResolver(interaction);
+				break;
+			case 'createEvent':
+				eventCreator(interaction);
+				break;
+		}
+	} else if (interaction.isButton()) { // Button interactions
+		// TODO
 	}
 });
 
-
-function authorHasPermission(msg: Discord.Message) : boolean {
-	// returns true if permissions are acceptable, if not, sends rejection message to channel and returns false.
-	if (msg.channel.type != 'text') return false;
-	if (!msg.member.hasPermission('MANAGE_GUILD')) {
-		msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'You don\'t have access to this command.', description: "Admins: You need MANAGE_GUILD to use this."}))
-			.catch(e => {console.log(`Couldn't send message: ${e}`)});
+function authorHasPermission(interaction: Discord.CommandInteraction){
+	// returns true if the member who sent this message has MANAGE_GUILD permissions, otherwise false and sends the invoking user an ephemeral message rejecting command execution.
+	if (!interaction.guild) {
+		interaction.reply({
+			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'This command must be executed from a guild channel to check for your permissions.', description: `🛠 You need MANAGE_GUILD to use ${interaction.commandName}.`})],
+			ephemeral: true
+		})
+		.then(() => {console.log(`INFO ${interaction.commandName} execution was rejected for ${interaction.user.tag}`)})
+		.catch(e => {console.log(`WARN ${interaction.commandName} execution was rejected for ${interaction.user.tag}, but the reply could not be sent:\n${e}`)});
+		return false;
+	}
+	/* 	
+		The line below is necessary because it is possible that interaction.member can resolve as APIGuildMember and not as GuildMember.
+		APIGuildMember does not support .has() because it is just the Bitfield, and not a discord.js Permissions object (which extends bitfield according to the docs)
+		It might be reasonable to raise an issue for this on discord.js's repository. Use this as a screenshot: https://i.imgur.com/ZHkffpR.png
+	*/
+	let permissions = new Discord.Permissions(interaction.member.permissions);
+	if (!permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)){
+		interaction.reply({
+			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'You don\'t have access to this command.', description: `🛠 You need MANAGE_GUILD to use ${interaction.commandName}.`})],
+			ephemeral: true
+		})
+		.then(() => {console.log(`INFO ${interaction.commandName} execution was rejected for ${interaction.user.tag}`)})
+		.catch(e => {console.log(`WARN ${interaction.commandName} execution was rejected for ${interaction.user.tag}, but the reply could not be sent:\n${e}`)});
 		return false;
 	}
 	return true;
 }
 
-function intCheck(a: number) : boolean {
+function intCheck(a: number | string | boolean) : boolean {
 	return !(Number.isNaN(a) || a > ((2**31)-1) || a < (-1)*((2**31)-1))
 }
 
-
-async function getTargetMember(msg: Discord.Message, arg: string) : Promise<Discord.GuildMember | void> {
-	const mentionRegex = /^<@!?\d+>$/; // Notice: If the user has a set nickname, the mention has an additional !-mark after the @.
-	if (msg.guild.available) {
-		if (mentionRegex.test(arg)){
-			arg = arg.slice(2,-1); // trim the always existing mention flags
-			if (arg.startsWith('!')) { arg = arg.slice(1); } // trim nickname exclamation mark if necessary
-			return msg.guild.members.fetch(arg)
-				.then(res => {
-					if (res) return res;
-				})
-				.catch(e => {
-					console.log(e);
-				});
-		} else {
-			return msg.guild.members.fetch({query: arg, limit: 2})
-				.then(res => {
-					if (res.size != 1) throw new Error(`Couldn't identify user`);
-					else return res.first();
-				})
-				.catch(e => {
-					console.log(e);
-				})
-		}
-	}
-	return null;
-}
-
-function resolveGuildChannel(resolvable: string, guild: Discord.Guild) : Discord.TextChannel | void {
-	const channelRegex = /^<#\d+>$/;
-	if (channelRegex.test(resolvable)) resolvable = resolvable.substring(2, resolvable.length - 1);
-	let out = guild.channels.resolve(resolvable);
-	if (out && out instanceof Discord.TextChannel) return out;
-}
-
-async function ticketBalanceDisplayer(args: Array<string>, msg: Discord.Message): Promise<void> {
-	let targetUser: Discord.User;
-	if (args.length < 2) targetUser = msg.author;
-	else {
-		let targetMember = await getTargetMember(msg, args[1]);
-		if (targetMember) targetUser = targetMember.user;
-	}
+async function ticketBalanceDisplayer(interaction: Discord.CommandInteraction) : Promise<void> {
+	let {user: targetUser} = interaction.options.get('user');
 	if (targetUser) {
-		const bal = await db.getUserTicketCount(targetUser);
-		if (bal == undefined) {
-			msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Something went wrong...', description: "Couldn't retrieve user data."}))
-				.catch(e => {console.log(`Couldn't send message: ${e}`)});
+		if (!authorHasPermission(interaction)) return;
+	} else {
+		if (!interaction.user) {
+			console.log(`ERR A command interaction was recieved, but it had no user associated to it.`);
 			return;
 		}
-		msg.channel.send(new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `🎟 ${bal}`}))
-			.catch(e => {console.log(`Couldn't send message: ${e}`)});
+		targetUser = interaction.user;
+		const bal = await db.getUserTicketCount(targetUser);
+		if (bal == undefined) { // no balance found
+			interaction.reply({
+				embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Something went wrong...', description: "Couldn't retrieve user data."})],
+				ephemeral: true
+			}).then(msg => {console.log(`INFO No ticket balance found for ${targetUser.tag}`)})
+				.catch(e => {console.log(`WARN No ticket balance found for ${targetUser.tag}, and the reply could not be sent:\n${e}`)});
+			return;
+		}
+		interaction.reply({
+			embeds: [new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `🎟 ${bal}`})],
+			ephemeral: true
+		}).catch(e => {console.log(`WARN No ticket balance found for ${targetUser.tag}, and the reply could not be sent:\n${e}`)});
 	}
 }
 
-async function ticketGiver(args: Array<string>, msg: Discord.Message): Promise<void> {
-	if (!authorHasPermission(msg)) return;
-
-	if (args.length < 3) {
-		msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Not enough arguments specified.', description: "Usage: -add <user> <amount>"}))
-			.catch(e => {console.log(`Couldn't send message: ${e}`)});
+async function ticketGiver(interaction: Discord.CommandInteraction) : Promise<void> {
+	if (!interaction.user) {
+		console.log(`ERR A command interaction was recieved, but it had no user associated to it.`);
 		return;
 	}
-	let targetMember = await getTargetMember(msg, args[1]);
-	if (!targetMember) {
-		msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Noone found matching your filters.', description: "If you're not using mentions and the username has spaces, make sure to put it in quotes."}))
-			.catch(e => {console.log(`Couldn't send message: ${e}`)});
-		return;	
-	}
-	let targetUser = targetMember.user;
-	let ticketAmount = parseInt(args[2]);
+	if (!authorHasPermission(interaction)) return;
+	const {user : targetUser} = interaction.options.get('user');
+	const {value : ticketAmount} = interaction.options.get('amount');
 	if (!intCheck(ticketAmount)) {
-		msg.channel.send(new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Invalid ticket amount specified.', description: "Make sure to specify an *integer* for the ticket amount."}))
-			.catch(e => {console.log(`Couldn't send message: ${e}`)});
+		interaction.reply({
+			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Invalid ticket amount specified.', description: "Make sure to specify an *integer* for the ticket amount."})],
+		}).then(msg => {console.log(`INFO Invalid ticket amount ${ticketAmount} was specified for give command`);})
+		.catch(e => {console.log(`WARN Invalid ticket amount ${ticketAmount} was specified for give command, and reply could not be sent:\n${e}`);});
 		return;
 	}
-	if (targetUser) {
-		let newTickets = await db.addUserTickets(targetUser, ticketAmount);
-		msg.channel.send(new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `New balance: 🎟 ${newTickets}`}))
-			.catch(e => {console.log(`Couldn't send message: ${e}`)});
+	if (!targetUser) {
+		interaction.reply({
+			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Something went wrong...', description: "No target user was recieved in your slash command request."})],
+		}).then(msg => {console.log(`ERR Give command expects a user, but did not recieve one in the options. Interaction:\n${interaction}`);})
+		.catch(e => {console.log(`ERR Give command expects a user, but did not recieve one in the options - and the reply could not be sent. Reply Error:\n${e}\n*****\nInteraction:\n${interaction}`);});
+		return;
 	}
+	const newTickets = await db.addUserTickets(targetUser, Number(ticketAmount));
+	interaction.reply({
+		embeds: [new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `New balance: 🎟 ${newTickets}`})],
+		ephemeral: true
+	}).catch(e => {console.log(`WARN A user was awarded tickets, but the distributor couldn't recieve the reply:\n${e}`)});
+
 }
 
-async function raffleCreator(args: Array<string>, msg: Discord.Message) {
-	if (msg.channel.type != 'text') return;
-	if (!authorHasPermission(msg)) return;
+async function raffleCreator(interaction: Discord.CommandInteraction) : Promise<void> {
+	// TODO
+}
+
+async function raffleCreatorOld(args: Array<string>, msg: Discord.Message) {
+	if (msg.channel.type != 'GUILD_TEXT') return;
+	if (!authorHasPermissionOld(msg)) return;
 	//args[1-4] are as follows: keyword, description (defaults to keyword), ticket amount (default 1), target text channel (default where message was sent)
 	if (args.length < 2) {
 		raffleCreatorArgsErr('Not enough arguments.', msg);
@@ -224,8 +329,8 @@ async function raffleCreator(args: Array<string>, msg: Discord.Message) {
 	
 }
 
-function raffleCreatorArgsErr(errType: string, msg: Discord.Message) {
-	msg.channel.send(new Discord.MessageEmbed({
+function raffleCreatorArgsErr(errType: string) : Discord.MessageEmbed {
+	return new Discord.MessageEmbed({
 		color: embedColors.Error, title: errType, description: "Raffle creation takes between one and four arguments, in this order:",
 		fields: [
 			{name: 'Keyword', value: 'The keyword to enter the raffle. Make sure this keyword isn\'t already in active use!'},
@@ -233,11 +338,14 @@ function raffleCreatorArgsErr(errType: string, msg: Discord.Message) {
 			{name: 'Ticket amount', value: 'Defaults to 1. The amount of tickets the raffle costs to enter (any int >= 0).'},
 			{name: 'Message channel', value: 'Defaults to the channel the invoking message was sent in, otherwise the text channel to send the message to.'}
 		]
-	}))
-		.catch(e => {console.log(`Couldn't send message: ${e}`)});
+	})
 }
 
-async function raffleEnterer(args : Array<string>, msg: Discord.Message) : Promise<void> {
+async function raffleEnterer(interaction: Discord.CommandInteraction) : Promise<void> {
+	// TODO
+}
+
+async function raffleEntererOld(args : Array<string>, msg: Discord.Message) : Promise<void> {
 	if (args.length < 2) {
 		raffleEnterArgsErr('No raffle keyword specified.', msg);
 		return;
@@ -286,7 +394,7 @@ async function raffleEnterer(args : Array<string>, msg: Discord.Message) : Promi
 		});
 }
 
-function raffleEnterArgsErr(errType: string, msg: Discord.Message, details? : string) {
+function raffleEnterArgsErr(errType: string, details? : string) : Discord.MessageEmbed {
 	let embed = new Discord.MessageEmbed({color: embedColors.Error, title: errType, description: details ? details : "Joining raffles takes either one or two arguments:"});
 	if (!details) {
 		embed.fields = [
@@ -294,8 +402,7 @@ function raffleEnterArgsErr(errType: string, msg: Discord.Message, details? : st
 			{name: 'Ticket amount', value: 'Defaults to the minimum amount of tickets. If a raffle has an entry fee, you can use multiple tickets (as long as you meet the entry fee) to get more entries into the raffle.', inline: false}
 		];
 	}
-	msg.channel.send(embed)
-		.catch(e => {console.log(`Couldn't send message: ${e}`)});
+	return embed;
 }
 
 interface distributionEntry {
@@ -321,8 +428,12 @@ function findWinnerInArray(list: Array<distributionEntry>, value: number): strin
 	return found;
 }
 
-async function raffleResolver(args: Array<string>, msg: Discord.Message) {
-	if (!authorHasPermission(msg)) return;
+async function raffleResolver(interaction: Discord.CommandInteraction) : Promise<void> {
+	// TODO
+}
+
+async function raffleResolverOld(args: Array<string>, msg: Discord.Message) {
+	if (!authorHasPermissionOld(msg)) return;
 	if (args.length < 2) {
 		raffleResolverArgsErr('You didn\'t specify which raffle to resolve', msg);
 		return;
@@ -410,15 +521,19 @@ async function raffleResolver(args: Array<string>, msg: Discord.Message) {
 
 }
 
-function raffleResolverArgsErr(errType: string, msg: Discord.Message, details?: string) {
-	msg.channel.send(new Discord.MessageEmbed({
+function raffleResolverArgsErr(errType: string, details?: string) : Discord.MessageEmbed {
+	return new Discord.MessageEmbed({
 		color: embedColors.Error, title: errType, description: details ? details : `To resolve a raffle, use the keyword you've specified on raffle creation like this:\n\`${prefix}resolve keyword\``,
-	})).catch(e => {console.log(`Couldn't send message: ${e}`)});
+	});
 }
 
-function eventCreator(args: Array<string>, msg: Discord.Message){
-	if (!authorHasPermission(msg)) return;
-	if (msg.channel.type != 'text') return;
+async function eventCreator(interaction: Discord.CommandInteraction) : Promise<void> {
+	// TODO
+}
+
+function eventCreatorOld(args: Array<string>, msg: Discord.Message){
+	if (!authorHasPermissionOld(msg)) return;
+	if (msg.channel.type != 'GUILD_TEXT') return;
 	let ticketCount = 1;
 	if (args.length >= 2) {
 		ticketCount = parseInt(args[1]);
@@ -488,8 +603,8 @@ function eventCreator(args: Array<string>, msg: Discord.Message){
 		})
 }
 
-function eventCreatorArgsErr(errType: string, msg: Discord.Message) {
-	msg.channel.send(new Discord.MessageEmbed({
+function eventCreatorArgsErr(errType: string) {
+	return new Discord.MessageEmbed({
 		color: embedColors.Error, title: errType, description: "Event creation takes between none and four arguments, in this order:",
 		fields: [
 			{name: 'Ticket amount', value: 'Defaults to 1. If specified, will assign this many tickets on reaction.'},
@@ -497,22 +612,28 @@ function eventCreatorArgsErr(errType: string, msg: Discord.Message) {
 			{name: 'Description', value: 'Defaults to a small blurb, otherwise replaces the title of the message.'},
 			{name: 'Expiry time', value: 'Defaults to one hour, maxes out at 24 hours. Specifies for how long (in minutes) tickets may be redeemed.'},
 		]
-	}))
-		.catch(e => {console.log(`Couldn't send message: ${e}`)});
+	})
 }
 
-function showCredits(args: Array<string>, msg: Discord.Message): void {
-	msg.channel.send(new Discord.MessageEmbed({
-		color: embedColors.Default,
-		author: {name: 'Ticket Machine', iconURL: client.user.avatarURL()},
-		title: 'Source public on GitHub, made using discord.js.org',
-		url: 'https://github.com/baabaablackgoat/ticketMachine',
-		footer: {
-			text: 'Made with ❤ by baa baa black goat',
-			iconURL: 'https://blackgoat.dev/favicon.png'
-		}
-	})).catch(e => {console.log(`Couldn't send message: ${e}`)});
+async function showCredits(interaction: Discord.CommandInteraction) : Promise<void> {
+	interaction.reply({
+		embeds: [new Discord.MessageEmbed({
+			color: embedColors.Default,
+			author: {name: 'Ticket Machine', iconURL: client.user.avatarURL()},
+			title: 'Source public on GitHub, made using discord.js.org',
+			url: 'https://github.com/baabaablackgoat/ticketMachine',
+			footer: {
+				text: 'Made with ❤ by baa baa black goat',
+				iconURL: 'https://blackgoat.dev/favicon.png'
+			}
+		})],
+		ephemeral: true
+	}).catch(e => {console.log(`WARN Credits were requested, but the reply couldn't be sent:\n${e}`)});
 }
 
 
-client.login(discordToken).catch(err => console.error("Couldn't log in: " + err));
+
+client.login(discordToken).catch(err => {
+	console.error("Couldn't log in: " + err)
+	process.exit(1);
+});
