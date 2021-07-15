@@ -133,6 +133,10 @@ client.on('ready', () => {
 
 client.on('interactionCreate', interaction => {
 	if (interaction.isCommand()) { // Slash command interactions
+		if (!interaction.user) {
+			console.log(`ERR A command interaction was recieved, but it had no user associated to it.`);
+			return;
+		}
 		switch (interaction.commandName) {
 			case 'bal':
 				ticketBalanceDisplayer(interaction);
@@ -199,10 +203,6 @@ async function ticketBalanceDisplayer(interaction: Discord.CommandInteraction) :
 	if (targetUser) {
 		if (!authorHasPermission(interaction)) return;
 	} else {
-		if (!interaction.user) {
-			console.log(`ERR A command interaction was recieved, but it had no user associated to it.`);
-			return;
-		}
 		targetUser = interaction.user;
 		const bal = await db.getUserTicketCount(targetUser);
 		if (bal == undefined) { // no balance found
@@ -221,10 +221,6 @@ async function ticketBalanceDisplayer(interaction: Discord.CommandInteraction) :
 }
 
 async function ticketGiver(interaction: Discord.CommandInteraction) : Promise<void> {
-	if (!interaction.user) {
-		console.log(`ERR A command interaction was recieved, but it had no user associated to it.`);
-		return;
-	}
 	if (!authorHasPermission(interaction)) return;
 	const {user : targetUser} = interaction.options.get('user');
 	const {value : ticketAmount} = interaction.options.get('amount');
@@ -251,82 +247,115 @@ async function ticketGiver(interaction: Discord.CommandInteraction) : Promise<vo
 }
 
 async function raffleCreator(interaction: Discord.CommandInteraction) : Promise<void> {
-	// TODO
-}
+	if (!authorHasPermission(interaction)) return;
+	const {value: entryKeyword} = interaction.options.get('keyword');
+	const {value: raffleDescription = entryKeyword} = interaction.options.get('description');
+	const {value: entryCost = 1} = interaction.options.get('minEntryFee');
+	const {channel: targetChannel = interaction.channel} = interaction.options.get('targetChannel');
 
-async function raffleCreatorOld(args: Array<string>, msg: Discord.Message) {
-	if (msg.channel.type != 'GUILD_TEXT') return;
-	if (!authorHasPermissionOld(msg)) return;
-	//args[1-4] are as follows: keyword, description (defaults to keyword), ticket amount (default 1), target text channel (default where message was sent)
-	if (args.length < 2) {
-		raffleCreatorArgsErr('Not enough arguments.', msg);
+	if (typeof entryKeyword != 'string') {
+		interaction.reply({
+			embeds: [raffleCreatorArgsErr('Entry keyword is invalid.')],
+			ephemeral: true
+		}).then(() => {console.log(`INFO ${interaction.user.tag} attempted to create a raffle with invalid keyword ${entryKeyword}`)})
+		.catch(e => {console.log(`WARN ${interaction.user.tag} attempted to create a raffle with invalid description ${entryKeyword}, but couldn't be notified:\n${e}`)})
 		return;
 	}
-	let entryKeyword : string = args[1];
-	if (entryKeyword.length == 0 || entryKeyword.length > 100) {
-		raffleCreatorArgsErr('Specified keyword is invalid.', msg);
+	if (entryKeyword.length > 100) {
+		interaction.reply({
+			embeds: [raffleCreatorArgsErr('Your entry keyword is too long. Please limit yourself to 100 characters.')],
+			ephemeral: true
+		}).then(() => {console.log(`INFO ${interaction.user.tag} attempted to create a raffle with overflowing keyword.`)})
+		.catch(e => {console.log(`WARN ${interaction.user.tag} attempted to create a raffle with overflowing keyword, but couldn't be notified:\n${e}`)})
 		return;
 	}
-	let raffleDescription : string = args[2] ? args[2] : entryKeyword;
+
+	if (typeof raffleDescription != 'string') {
+		interaction.reply({
+			embeds: [raffleCreatorArgsErr('Raffle description is invalid.')],
+			ephemeral: true
+		}).then(() => {console.log(`INFO ${interaction.user.tag} attempted to create a raffle with invalid description ${raffleDescription}`)})
+		.catch(e => {console.log(`WARN ${interaction.user.tag} attempted to create a raffle with invalid description ${raffleDescription}, but couldn't be notified:\n${e}`)})
+		return;
+	}
 	if (raffleDescription.length > 256) {
-		raffleCreatorArgsErr('Your description is too long. Please limit yourself to 256 characters or less.', msg);
+		interaction.reply({
+			embeds: [raffleCreatorArgsErr('Your raffle description is too long. Please limit yourself to 256 characters.')],
+			ephemeral: true
+		}).then(() => {console.log(`INFO ${interaction.user.tag} attempted to create a raffle with overflowing description.`)})
+		.catch(e => {console.log(`WARN ${interaction.user.tag} attempted to create a raffle with overflowing description, but couldn't be notified:\n${e}`)})
 		return;
 	}
-	let entryCost = 1;
-	if (args.length >= 4) {
-		entryCost = parseInt(args[3]);
-		if (!intCheck(entryCost) || entryCost < 0) {
-			raffleCreatorArgsErr('Entry cost is invalid.', msg);
-			return;
-		}
-	}
-	let targetChannel: Discord.TextChannel | void = msg.channel;
-	if (args.length >= 5) {
-		targetChannel = resolveGuildChannel(args[4], msg.guild);
-		if (!targetChannel) {
-			raffleCreatorArgsErr('Couldn\'t resolve target channel.', msg);
-			return;
-		}
+
+	if (typeof entryCost != 'number' || !intCheck(entryCost) || entryCost < 0) {
+		interaction.reply({
+			embeds: [raffleCreatorArgsErr('Entry cost is invalid.')],
+			ephemeral: true
+		}).then(() => {console.log(`INFO ${interaction.user.tag} attempted to create a raffle with invalid entry cost ${entryCost}.`)})
+		.catch(e => {console.log(`WARN ${interaction.user.tag} attempted to create a raffle with invalid entry cost ${entryCost}, but couldn't be notified:\n${e}`)})
+		return;
 	}
 
-	targetChannel.send(`🎟 Preparing a raffle, please wait...`)
-		.then(targetMsg => {
-			db.createRaffle(targetMsg, entryKeyword, entryCost)
-				.then(success => {
-					if (success) {
-						targetMsg.edit('', new Discord.MessageEmbed({
-							color: embedColors.Default,
-							author: {name: 'A wild raffle has appeared!', iconURL: client.user.avatarURL()},
-							title: raffleDescription,
-							description: `Enter the raffle with \`${prefix}enter ${entryKeyword} <ticketAmount>\`\nMinimum entry fee: ${entryCost} 🎟`,
-							fields: [{name: 'Entries', value: 0}]
-						}))
-						.then(targetMsg => {
-							if (targetChannel != msg.channel) {
-								msg.channel.send(new Discord.MessageEmbed({
-									color: embedColors.Ok,
-									title: 'Raffle has been created!',
-								})).catch(e => console.log(`Couldn't send message: ${e}`))
+	if (!(targetChannel instanceof Discord.TextChannel)) {
+		interaction.reply({
+			embeds: [raffleCreatorArgsErr('Target channel is invalid.')],
+			ephemeral: true
+		}).then(() => {console.log(`INFO ${interaction.user.tag} attempted to create a raffle with invalid target channel ${targetChannel}`)})
+		.catch(e => {console.log(`WARN ${interaction.user.tag} attempted to create a raffle with invalid target channel, but couldn't be notified:\n${e}`)})
+		return;
+	}
+
+	interaction.defer({ephemeral: true})
+		.then(() => {
+			targetChannel.send({content: `🎟 Preparing a raffle, please wait...`})
+				.then(targetMsg => {
+					db.createRaffle(targetMsg, entryKeyword, entryCost)
+						.then(success => {
+							if (success) {
+								targetMsg.edit({embeds: [
+									new Discord.MessageEmbed({
+										color: embedColors.Default,
+										author: {name: 'A wild raffle has appeared!', iconURL: client.user.avatarURL()},
+										title: raffleDescription,
+										description: `Enter the raffle with \`/join ${entryKeyword} <ticketAmount>\`\nMinimum entry fee: ${entryCost} 🎟`,
+										fields: [{name: 'Entries', value: '0'}]
+									})]
+								}).then((editedMessage) => {
+									interaction.editReply({
+										embeds: [new Discord.MessageEmbed({
+											color: embedColors.Ok,
+											title: 'Raffle has been created!'})
+										]}).catch(e => {console.log(`WARN Raffle was created, but the interaction couldn't be replied to:\n${e}`)})
+								}).catch(e => {
+									console.log(`WARN The raffle message couldn't be edited:\n${e}`)
+								})
 							}
 						})
-						.catch(e => console.log(`Couldn't edit message: ${e}`));
-						;
-					}
+						.catch(e => {
+							if (e.message.includes('Active raffle with keyword exists')) {
+								interaction.editReply({embeds:[raffleCreatorArgsErr('An active raffle with this keyword already exists')]})
+									.then(()=> {console.log(`INFO Raffle keyword ${entryKeyword} is occupied`)})
+									.catch(e => {console.log(`WARN Raffle keyword ${entryKeyword} is occupied and the interaction couldn't be sent:\n${e}`)});
+							}
+							else {
+								interaction.editReply({embeds:[raffleCreatorArgsErr('Something went wrong. The error has been dumped to console.')]})
+									.then(()=> {console.log(`WARN Database error occurred upon raffle creation:\n${e}`)})
+									.catch(msgE => {console.log(`WARN Database error occurred upon raffle creation and the interaction couldn't be sent.\nDB error:${e}\n****\n${msgE}`)});
+							}
+							targetMsg.delete().catch(e => {console.log(`WARN Failed to delete message: ${e}`)});
+						});
 				})
 				.catch(e => {
-					if (e.message.includes('Active raffle with keyword exists')) raffleCreatorArgsErr('An active raffle with this keyword already exists', msg);
-					else {
-						raffleCreatorArgsErr('Something went wrong. The error has been dumped to console.', msg);
-						console.log(e);
-					}
-					targetMsg.delete({reason: 'Raffle creation failed, cleaning up'}).catch(e => {console.log(`Failed to delete message: ${e}`)});
+					interaction.editReply({
+						embeds:[new Discord.MessageEmbed({
+							color: embedColors.Error,
+							title: 'Failed to create raffle.',
+							description: 'I couldn\'t send a message to the targeted channel. Do I have write messages permissions?'
+						})]
+					}).catch(e => {`WARN Couldn't edit interaction reply after raffle creation failed due to no message sending:\n${e}`})
+					console.log(`WARN Couldn't send message to target channel.\n${e}`)
 				});
-		})
-		.catch(e => {
-			raffleCreatorArgsErr('Failed to send message to target channel.', msg);
-		});
-
-	
+		}).catch(e => console.log(`ERR Something went wrong while deferring raffle creation interaction:\n${e}`))
 }
 
 function raffleCreatorArgsErr(errType: string) : Discord.MessageEmbed {
