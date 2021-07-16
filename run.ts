@@ -161,9 +161,7 @@ client.on('ready', () => {
 });
 
 client.on('interaction', interaction => {
-	console.log('omg hi');
 	if (interaction.isCommand()) { // Slash command interactions
-		console.log('yeye')
 		if (!interaction.user) {
 			console.log(`ERR A command interaction was recieved, but it had no user associated to it.`);
 			return;
@@ -215,7 +213,8 @@ function authorHasPermission(interaction: Discord.CommandInteraction){
 		APIGuildMember does not support .has() because it is just the Bitfield, and not a discord.js Permissions object (which extends bitfield according to the docs)
 		It might be reasonable to raise an issue for this on discord.js's repository. Use this as a screenshot: https://i.imgur.com/ZHkffpR.png
 	*/
-	let permissions = new Discord.Permissions(interaction.member.permissions);
+	let permissions = <Discord.Permissions>interaction.member.permissions;
+	// TODO something about this is broken
 	if (!permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)){
 		interaction.reply({
 			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'You don\'t have access to this command.', description: `🛠 You need MANAGE_GUILD to use ${interaction.commandName}.`})],
@@ -233,25 +232,23 @@ function intCheck(a: number | string | boolean) : boolean {
 }
 
 async function ticketBalanceDisplayer(interaction: Discord.CommandInteraction) : Promise<void> {
-	let {user: targetUser = interaction.user} = interaction.options.get('user');
-	if (targetUser != interaction.user) {
+	let targetUser = interaction.options?.get('user')?.user;
+	if (targetUser) {
 		if (!authorHasPermission(interaction)) return;
-	} else {
-		let {user: targetUser} = interaction.options.get('user');
-		const bal = await db.getUserTicketCount(targetUser);
-		if (bal == undefined) { // no balance found
-			interaction.reply({
-				embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Something went wrong...', description: "Couldn't retrieve user data."})],
-				ephemeral: true
-			}).then(msg => {console.log(`INFO No ticket balance found for ${targetUser.tag}`)})
-				.catch(e => {console.log(`WARN No ticket balance found for ${targetUser.tag}, and the reply could not be sent:\n${e}`)});
-			return;
-		}
+	} else targetUser = interaction.user;
+	const bal = await db.getUserTicketCount(targetUser);
+	if (bal == undefined) { // no balance found
 		interaction.reply({
-			embeds: [new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `🎟 ${bal}`})],
+			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Something went wrong...', description: "Couldn't retrieve user data."})],
 			ephemeral: true
-		}).catch(e => {console.log(`WARN No ticket balance found for ${targetUser.tag}, and the reply could not be sent:\n${e}`)});
+		}).then(msg => {console.log(`INFO No ticket balance found for ${targetUser.tag}`)})
+			.catch(e => {console.log(`WARN No ticket balance found for ${targetUser.tag}, and the reply could not be sent:\n${e}`)});
+		return;
 	}
+	interaction.reply({
+		embeds: [new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `🎟 ${bal}`})],
+		ephemeral: true
+	}).catch(e => {console.log(`WARN No ticket balance found for ${targetUser.tag}, and the reply could not be sent:\n${e}`)});
 }
 
 async function ticketGiver(interaction: Discord.CommandInteraction) : Promise<void> {
