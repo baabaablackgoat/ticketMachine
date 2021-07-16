@@ -1,4 +1,5 @@
 import * as Discord from 'discord.js';
+import * as Moment from 'moment';
 import stringArgv from 'string-argv';
 import getEnv from "./functions/getEnv";
 import * as db from "./functions/dbInteract";
@@ -41,7 +42,7 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 	},
 	// raffle command
 	{
-		name: 'createRaffle',
+		name: 'createraffle',
 		description: '🛠 Create a new raffle for users to participate in.',
 		options: [{
 			name: 'keyword',
@@ -54,14 +55,14 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 			description: 'The text to display on the raffle message itself. Defaults to the keyword if omitted.',
 			required: false,
 		}, {
-			name: 'minEntryFee',
+			name: 'minentryfee',
 			type: 'INTEGER',
-			description: 'The lowest amount of tickets to enter this fee. Set to 0 for free entry, one per user. Defaults to 1 if omitted.',
+			description: 'The lowest amount of tickets to enter this fee. Set to 0 for free entry, one per user. Default 1.',
 			required: false,
 		}, {
-			name: 'targetChannel',
+			name: 'targetchannel',
 			type: 'CHANNEL',
-			description: 'The text channel to send the raffle message in. Defaults to where this command is executed if omitted.',
+			description: 'The text channel to send the raffle message in. Defaults to where this command is executed.',
 			required: false,
 		}]
 	},
@@ -75,7 +76,7 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 			description: 'The keyword associated with the raffle to enter.',
 			required: true
 		},{
-			name: 'ticketAmount',
+			name: 'ticketamount',
 			type: 'INTEGER',
 			description: 'The amount of entries you would like to make. Defaults to the minimum amount if omitted.',
 			required: false
@@ -91,7 +92,7 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 			description: 'The keyword associated with the raffle that shall be resolved.',
 			required: true
 		},{
-			name: 'winnerCount',
+			name: 'winnercount',
 			type: 'INTEGER',
 			description: 'The amount of winners to draw. Defaults to 1 if omitted.',
 			required: false
@@ -104,7 +105,7 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 	},
 	// createEvent command
 	{
-		name: 'createEvent',
+		name: 'createevent',
 		description: '🛠 Create a ticket redemption event for users to click on and get tickets with.',
 		options: [{
 			name: 'value',
@@ -112,9 +113,9 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 			description: 'The amount of tickets to award. (Once per user per event.) Defaults to 1 if omitted.',
 			required: false
 		},{
-			name: 'messageChannel',
+			name: 'messagechannel',
 			type: 'CHANNEL',
-			description: 'The text channel where the redemption event is to be created. Defaults to the channel where this command is executed.',
+			description: 'The text channel where the redemption event is to be created. Defaults to where this is executed.',
 			required: false
 		}, {
 			name: 'description',
@@ -122,22 +123,47 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 			description: 'The text to display on the redemption event. Defaults to \'A pile of tickets lies on the ground.\'',
 			required: false
 		}, {
-			name: 'expiryTime',
+			name: 'expirytime',
 			type: 'INTEGER',
-			description: 'The amount of time this event can be redeemed for. Defaults to 24 hours if omitted.',
+			description: 'The amount of time in minutes this event can be redeemed for. Defaults to 24 hours if omitted.',
 			required: false
 		}]
 	}
 ];
 
 client.on('ready', () => {
-	console.log(`Discord - Logged in. ${client.user.tag}`);
-	// todo: register slash commands here
-	// probably detect if it should be global or local based on npm execution
+	console.log(`INFO Discord - Logged in. ${client.user.tag} Attempting to register slash commands...`);
+	if (process.argv.includes('--test')) { // test guild slash commands
+		const testingGuildID = <Discord.Snowflake>getEnv('DISCORD_TICKETS_TESTGUILDID');
+		let targetGuild = client.guilds.resolve(testingGuildID);
+		/* 
+		// In case you want to isolate which command is acting up I guess
+		for (let i = 0; i < allCommands.length; i++) {
+			targetGuild.commands.create(allCommands[i])
+				.then(registeredCommand => console.log(`INFO Slash command ${allCommands[i].name} registered`))
+				.catch(e => {
+					console.log(`ERR Slash command ${allCommands[i].name} could not be registered. Exiting. ${e}`);
+					process.exit(1);
+				});
+		}
+		*/
+		targetGuild.commands.set(allCommands)
+			.then(foo => console.log(`INFO Slash commands successfully registered in guild ${targetGuild.name}`))
+			.catch(err => {
+				console.log(`ERR failed to register slash commands, exiting: \n${err}`);
+				process.exit(1);
+			})
+
+	} else { // global slash commands
+		// TODO: enable global command registration
+		console.log(`no global commands implemented yet`);
+	}
 });
 
-client.on('interactionCreate', interaction => {
+client.on('interaction', interaction => {
+	console.log('omg hi');
 	if (interaction.isCommand()) { // Slash command interactions
+		console.log('yeye')
 		if (!interaction.user) {
 			console.log(`ERR A command interaction was recieved, but it had no user associated to it.`);
 			return;
@@ -152,7 +178,7 @@ client.on('interactionCreate', interaction => {
 			case 'credits':
 				showCredits(interaction);
 				break;
-			case 'createRaffle':
+			case 'createraffle':
 				raffleCreator(interaction);
 				break;
 			case 'join':
@@ -161,12 +187,15 @@ client.on('interactionCreate', interaction => {
 			case 'resolve':
 				raffleResolver(interaction);
 				break;
-			case 'createEvent':
+			case 'createevent':
 				eventCreator(interaction);
+				break;
+			default:
+				console.log(`ERR wtf u tryna do here ${interaction}`);
 				break;
 		}
 	} else if (interaction.isButton()) { // Button interactions
-		// TODO
+		if (interaction.customID && interaction.customID.startsWith('award_')) ticketEventAwarder(interaction);
 	}
 });
 
@@ -204,11 +233,11 @@ function intCheck(a: number | string | boolean) : boolean {
 }
 
 async function ticketBalanceDisplayer(interaction: Discord.CommandInteraction) : Promise<void> {
-	let {user: targetUser} = interaction.options.get('user');
-	if (targetUser) {
+	let {user: targetUser = interaction.user} = interaction.options.get('user');
+	if (targetUser != interaction.user) {
 		if (!authorHasPermission(interaction)) return;
 	} else {
-		targetUser = interaction.user;
+		let {user: targetUser} = interaction.options.get('user');
 		const bal = await db.getUserTicketCount(targetUser);
 		if (bal == undefined) { // no balance found
 			interaction.reply({
@@ -255,8 +284,8 @@ async function raffleCreator(interaction: Discord.CommandInteraction) : Promise<
 	if (!authorHasPermission(interaction)) return;
 	const {value: entryKeyword} = interaction.options.get('keyword');
 	const {value: raffleDescription = entryKeyword} = interaction.options.get('description');
-	const {value: entryCost = 1} = interaction.options.get('minEntryFee');
-	const {channel: targetChannel = interaction.channel} = interaction.options.get('targetChannel');
+	const {value: entryCost = 1} = interaction.options.get('minentryfee');
+	const {channel: targetChannel = interaction.channel} = interaction.options.get('targetchannel');
 
 	if (typeof entryKeyword != 'string') {
 		interaction.reply({
@@ -378,7 +407,7 @@ function raffleCreatorArgsErr(errType: string) : Discord.MessageEmbed {
 
 async function raffleEnterer(interaction: Discord.CommandInteraction) : Promise<void> {
 	const {value: entryKeyword} = interaction.options.get('keyword');
-	let {value: entryAmount} = interaction.options.get('ticketAmount');
+	let {value: entryAmount} = interaction.options.get('ticketamount');
 	if (!entryKeyword || typeof entryKeyword != 'string' || entryKeyword.length > 100) {
 		interaction.reply({embeds: [raffleEnterArgsErr('Invalid keyword specified.')], ephemeral: true})
 			.catch(e => {console.log(`WARN Couldn't reply to interaction after invalid keyword was specified for entering a raffle:${e}`)})
@@ -469,7 +498,7 @@ function findWinnerInArray(list: Array<distributionEntry>, value: number): Disco
 async function raffleResolver(interaction: Discord.CommandInteraction) : Promise<void> {
 	if (!authorHasPermission(interaction)) return;
 	const {value: entryKeyword} = interaction.options.get('keyword');
-	const {value: winnerCount = 1} = interaction.options.get('winnerCount');
+	const {value: winnerCount = 1} = interaction.options.get('winnercount');
 	const {value: allowDuplicates = false} = interaction.options.get('duplicates');
 	if (!entryKeyword || typeof entryKeyword != 'string' || entryKeyword.length > 100) {
 		interaction.reply({embeds:[raffleResolverArgsErr('Invalid raffle keyword specified.')], ephemeral: true}).catch(e => {console.log(`WARN Invalid keyword was specified to resolve raffle, but reply failed:\n${e}`)});
@@ -572,84 +601,152 @@ async function raffleResolver(interaction: Discord.CommandInteraction) : Promise
 
 function raffleResolverArgsErr(errType: string, details?: string) : Discord.MessageEmbed {
 	return new Discord.MessageEmbed({
-		color: embedColors.Error, title: errType, description: details ? details : `To resolve a raffle, use the keyword you've specified on raffle creation like this:\n\`${prefix}resolve keyword\``,
+		color: embedColors.Error, title: errType, description: details ? details : `To resolve a raffle, use the keyword you've specified on raffle creation like this:\n\`/resolve keyword\``,
 	});
 }
 
 async function eventCreator(interaction: Discord.CommandInteraction) : Promise<void> {
-	// TODO
-}
+	if (!authorHasPermission(interaction)) return;
+	const {value: ticketAmount = 1} = interaction.options.get('value');
+	const {channel: targetChannel = interaction.channel} = interaction.options.get('messagechannel');
+	const {value: description = 'A pile of tickets lies on the ground.'} = interaction.options.get('description');
+	const {value: minutes = 1440} = interaction.options.get('expirytime');
+	if (!ticketAmount || typeof ticketAmount != 'number' || !intCheck(ticketAmount) || ticketAmount < 0) {
+		interaction.reply({embeds:[eventCreatorArgsErr('Invalid ticket amount specified.')] ,ephemeral:true})
+			.then(() => console.log(`INFO Invalid ticket amount ${ticketAmount} was specified for new event`))
+			.catch(e => console.log(`WARN Invalid ticket amount ${ticketAmount} was specified for new event and user couldn't be notified:\n${e}`));
+		return;
+	}
+	if (!targetChannel || !(targetChannel instanceof Discord.TextChannel)) {
+		interaction.reply({embeds:[eventCreatorArgsErr('Invalid target channel specified.')] ,ephemeral:true})
+			.then(() => console.log(`INFO Invalid target channel was specified for new event:\n${targetChannel}`))
+			.catch(e => console.log(`WARN Invalid target channel was specified for new event and user couldn't be notified. Channel:\n${targetChannel}\n****\nInteraction Error:\n${e}`));
+		return;
+	}
+	if (!description || typeof description != 'string' || description.length > 256) {
+		interaction.reply({embeds:[eventCreatorArgsErr('Invalid description specified. Please limit yourself to 256 characters or less.')] ,ephemeral:true})
+			.then(() => console.log(`INFO Invalid description was specified for new event:\n${description}`))
+			.catch(e => console.log(`WARN Invalid description was specified for new event and user couldn't be notified. Description:\n${description}\n****\nInteraction Error:\n${e}`));
+		return;
+	}
+	if (!minutes || typeof minutes != 'number' || minutes < 0 || minutes > 10080) {
+		interaction.reply({embeds:[eventCreatorArgsErr('Invalid expiry time specified. Enter the amount of minutes, up to seven days worth (10080)')] ,ephemeral:true})
+			.then(() => console.log(`INFO Invalid expiry time ${minutes} was specified for new event`))
+			.catch(e => console.log(`WARN Invalid expiry time ${minutes} was specified for new event and user couldn't be notified: \n${e}`));
+		return;
+	}
 
-function eventCreatorOld(args: Array<string>, msg: Discord.Message){
-	if (!authorHasPermissionOld(msg)) return;
-	if (msg.channel.type != 'GUILD_TEXT') return;
-	let ticketCount = 1;
-	if (args.length >= 2) {
-		ticketCount = parseInt(args[1]);
-		if (!intCheck(ticketCount) || ticketCount < 1) {
-			eventCreatorArgsErr('Invalid ticket amount specified.', msg);
-			return;
-		}
-	}
-	let targetChannel : Discord.TextChannel = msg.channel;
-	if (args.length >= 3) {
-		let temp = resolveGuildChannel(args[2], msg.guild);
-		if (!temp) {
-			eventCreatorArgsErr('Could not resolve channel.',msg);
-			return;
-		} 
-		targetChannel = temp ? temp : msg.channel; // typescript pls
-	}
-	let description = 'A pile of tickets lies on the ground.'
-	if (args.length >= 4) {
-		if (args[3].length > 256) {
-			eventCreatorArgsErr('Your description is too long. Please limit yourself to 256 characters or less.', msg);
-			return;
-		}
-		description = args[3];
-	}
-	let minutes = 60;
-	if (args.length >= 5) {
-		minutes = parseInt(args[4]);
-		if (!intCheck(minutes) || minutes < 1 || minutes > 1440) {
-			eventCreatorArgsErr('Your timeout is invalid. Please use values between 1 and 1440 minutes (= 24 hours)', msg);
-			return;
-		}
-	}
-	let timeout = minutes * 60000;
+	let expiryTime = Moment().add(minutes, 'minutes');
 
-	db.createEvent(ticketCount)
-		.then(eventID => {
-			targetChannel.send(new Discord.MessageEmbed({
-				color: embedColors.Default,
-				title: description,
-				description: `To collect your ${ticketCount} 🎟, react with 🎟`,
-			}))
-				.then(collectorMessage => {
-					collectorMessage.react('🎟').catch(e => `Failed to react on collection message: ${e}`);
-					const filter = (reaction: Discord.MessageReaction, user: Discord.User) => reaction.emoji.name == '🎟' && !user.bot;
-					const eventCollector = collectorMessage.createReactionCollector(filter, {time: timeout});
-					eventCollector.on('collect', (r, u) => {
-						db.awardUserTickets(u, eventID)
-							.catch(e => console.log(`Failed to award user with tickets for event ID ${eventID}: ${e}`))
-					});
-					eventCollector.on('end', (c, reason) => {
-						collectorMessage.edit(new Discord.MessageEmbed({
-							color: embedColors.Info,
-							title: 'This ticket awarding ceremony has ended!',
-						}));
-						console.log(`Award ceremony for eventID ${eventID} has concluded: ${reason}`);
-					});
-				})
-				.catch(e => {
-					eventCreatorArgsErr('Something went wrong... The error was dumped to console.', msg);
-					console.log(`Couldn't send event message: ${e}`)
+	interaction.defer({ephemeral: true})
+	.then(() => {
+		targetChannel.send({embeds: [new Discord.MessageEmbed({color: embedColors.Default, title: 'Creating a new event, please wait...'})]})
+		.then(targetMessage => {
+			db.createEvent(ticketAmount, expiryTime, targetMessage)
+			.then(eventID => {
+				targetMessage.edit({
+					embeds: [new Discord.MessageEmbed({
+					color: embedColors.Default,
+					title: description,
+					description: `To collect your ${ticketAmount} 🎟, click the button below!`,
+					})],
+					components: [new Discord.MessageActionRow().addComponents(new Discord.MessageButton({customID: `award_${eventID}`, emoji:'🎟', label: 'Redeem', style: 'SUCCESS'}))]
+				}).catch(e => {
+					interaction.editReply({embeds:[eventCreatorArgsErr('Redemption message couldn\'t be edited. Do I have permissions?')]})
+						.then(foo => {console.log(`WARN Couldn't send redemption message:\n${e}`)})
+						.catch(msgE => {console.log(`WARN Couldn't send redemption message, and user couldn't be notified. Redemption error:\n${e}\n*****\nInteraction error:${msgE}`)})
 				});
+			})
+			.catch(e => {
+				interaction.editReply({embeds:[eventCreatorArgsErr('Something went wrong... The error has been dumped to console.')]})
+					.then(e => console.log(`ERR DB Error occurred on event creation:\n${e}`))
+					.catch(me => console.log(`ERR DB Error occurred on event creation:\n${e}\nAdditionally, user couldn't be notified:\n${me}`));
+			})
 		})
 		.catch(e => {
-			eventCreatorArgsErr('Something went wrong... The error was dumped to console.', msg);
-			console.log(e);
+			interaction.editReply({embeds:[eventCreatorArgsErr('Redemption message couldn\'t be created. Do I have permissions?')]}).catch(e => `WARN Interaction couldn't be replied to: ${e}`);
+			console.log(`WARN Error occured in the database for event creation: \n${e}`);
 		})
+	})
+	.catch(e => {console.log(`WARN Something went wrong while deferring the interaction for event creation:\n${e}`)})	
+}
+
+async function ticketEventAwarder(interaction: Discord.ButtonInteraction) {
+	if (!interaction.guild) {console.log(`ERR Button Interaction for awards was called outside of guild`); return;}
+	// buttonID starts with award_ followed by eventID
+	let eventID : number = parseInt(interaction.customID.substring(6))
+	if (Number.isNaN(eventID)) {
+		console.log(`ERR Event ID that was recieved through button interaction is not a number`);
+		return;
+	}
+	db.awardUserTickets(interaction.user, eventID)
+		.then(res => {
+			if (res) {
+				interaction.reply({
+					embeds: [new Discord.MessageEmbed({
+						color: embedColors.Default,
+						title: 'Tickets redeemed!',
+					})],
+					ephemeral: true
+				}).catch(e => console.log(`WARN Couldn't reply to event interaction:\n${e}`));
+			}
+			else {
+				interaction.reply({
+					embeds: [new Discord.MessageEmbed({
+						color: embedColors.Error,
+						title: 'You have already redeemed these tickets!',
+					})],
+					ephemeral: true
+				}).catch(e => console.log(`WARN Couldn't reply to event interaction:\n${e}`));
+			}
+		})
+		.catch(async function(e) {
+			if (e.message.includes('Event has closed recently')) {
+				let messageToClose = await db.closeExpiredEvent(eventID);
+				if (!interaction.channel.isText()) console.log(`ERR Button Interaction did not return a text channel`);
+				let messageObject = await interaction.channel.messages.fetch(messageToClose);
+				ticketEventCloser(messageObject);
+				interaction.reply({
+					embeds: [new Discord.MessageEmbed({
+						color: embedColors.Info,
+						title: 'This ticket awarding ceremony has already ended.',
+					})],
+					ephemeral: true
+				})
+				.catch(e => console.log(`WARN Couldn't reply to event interaction:\n${e}`));
+			}
+			else if (e.message.includes('Event is closed')) {
+				interaction.reply({
+					embeds: [new Discord.MessageEmbed({
+						color: embedColors.Info,
+						title: 'This ticket awarding ceremony has already ended.',
+					})],
+					ephemeral: true
+				})
+				.catch(e => console.log(`WARN Couldn't reply to event interaction:\n${e}`));
+			} else {
+				interaction.reply({
+					embeds: [new Discord.MessageEmbed({
+						color: embedColors.Error,
+						title: 'Something went wrong... The error has been dumped to console.',
+					})],
+					ephemeral: true
+				}).catch(e => console.log(`WARN Couldn't reply to event interaction:\n${e}`));
+				console.log(`WARN Something went wrong during event redemption:\n${e}`)
+			}
+		})
+}
+
+// TODO write an interval function that checks for expired events (see )
+async function ticketEventCloser(message: Discord.Message) {
+	message.edit({
+		embeds: [new Discord.MessageEmbed({
+			color: embedColors.Info,
+			title: 'This ticket awarding ceremony has ended!',
+		})],
+		components: [new Discord.MessageActionRow().addComponents(new Discord.MessageButton({customID: `expired`, emoji:'🎟', label: 'Redeem', style: 'SECONDARY', disabled: true}))]
+	})
+		.catch(e => {console.log(`WARN Couldn't edit award message:\n${e}`)})
 }
 
 function eventCreatorArgsErr(errType: string) {
@@ -681,8 +778,7 @@ async function showCredits(interaction: Discord.CommandInteraction) : Promise<vo
 }
 
 
-
 client.login(discordToken).catch(err => {
 	console.error("Couldn't log in: " + err)
 	process.exit(1);
-	});
+});
