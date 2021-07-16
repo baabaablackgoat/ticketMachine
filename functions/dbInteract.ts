@@ -152,7 +152,7 @@ export async function enterRaffle(user: Discord.User, entryKeyword: string, tick
 interface raffleEntry {
 	entryID: number,
 	raffleID: number,
-	userID: string,
+	userID: Discord.Snowflake,
 	entryCount: number
 }
 

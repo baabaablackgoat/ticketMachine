@@ -95,6 +95,11 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 			type: 'INTEGER',
 			description: 'The amount of winners to draw. Defaults to 1 if omitted.',
 			required: false
+		}, {
+			name: 'duplicates',
+			type: 'BOOLEAN',
+			description: 'Whether a user may win multiple times in a single raffle. Defaults to false.',
+			required: false
 		}]
 	},
 	// createEvent command
@@ -408,19 +413,19 @@ async function raffleEnterer(interaction: Discord.CommandInteraction) : Promise<
 			}
 		}).catch(e => {
 			if (e.message.includes('User does not have enough tickets to enter.')) {
-				interaction.reply({embeds:[raffleEnterArgsErr('You don\'t have enough tickets.')]})
+				interaction.reply({embeds:[raffleEnterArgsErr('You don\'t have enough tickets.')], ephemeral: true})
 				.catch(e=>{`WARN User doesn't have enough tickets but couldn't be replied to:\n${e}`});
 			} else if (e.message.includes('which has min. ticket count of')) {
-				interaction.reply({embeds:[raffleEnterArgsErr('You are trying to enter with too few tickets.')]})
+				interaction.reply({embeds:[raffleEnterArgsErr('You are trying to enter with too few tickets.')], ephemeral: true})
 				.catch(e=>{`WARN User doesn't have enough tickets but couldn't be replied to:\n${e}`});
 			} else if (e.message.includes('No active raffle found with associated keyword')) {
-				interaction.reply({embeds:[raffleEnterArgsErr('That raffle does not exist.')]})
+				interaction.reply({embeds:[raffleEnterArgsErr('That raffle does not exist.')], ephemeral: true})
 				.catch(e=>{`WARN User doesn't have enough tickets but couldn't be replied to:\n${e}`});
 			} else if (e.message.includes('User is already entered into free raffle')) {
-				interaction.reply({embeds:[raffleEnterArgsErr('Free raffles can only have one entry per user.')]})
+				interaction.reply({embeds:[raffleEnterArgsErr('Free raffles can only have one entry per user.')], ephemeral: true})
 				.catch(e=>{`WARN User doesn't have enough tickets but couldn't be replied to:\n${e}`});
 			} else {
-				interaction.reply({embeds:[raffleEnterArgsErr('Something went wrong...', 'The error has been dumped to the console.')]})
+				interaction.reply({embeds:[raffleEnterArgsErr('Something went wrong...', 'The error has been dumped to the console.')], ephemeral: true})
 				.catch(e=>{`ERR Something unexpected went wrong while entering a raffle:\n${e}`});
 			}
 		});
@@ -450,7 +455,7 @@ function randomInt(min: number, max: number) { // MDN
 	return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function findWinnerInArray(list: Array<distributionEntry>, value: number): string | null {
+function findWinnerInArray(list: Array<distributionEntry>, value: number): Discord.Snowflake | null {
 	let found = null;
 	for (let i=0; i<list.length; i++) {
 		if (value >= list[i].min && value <= list[i].max) {
@@ -464,96 +469,105 @@ function findWinnerInArray(list: Array<distributionEntry>, value: number): strin
 async function raffleResolver(interaction: Discord.CommandInteraction) : Promise<void> {
 	if (!authorHasPermission(interaction)) return;
 	const {value: entryKeyword} = interaction.options.get('keyword');
-	// TODO
-}
-
-async function raffleResolverOld(args: Array<string>, msg: Discord.Message) {
-	if (!authorHasPermissionOld(msg)) return;
-	if (args.length < 2) {
-		raffleResolverArgsErr('You didn\'t specify which raffle to resolve', msg);
+	const {value: winnerCount = 1} = interaction.options.get('winnerCount');
+	const {value: allowDuplicates = false} = interaction.options.get('duplicates');
+	if (!entryKeyword || typeof entryKeyword != 'string' || entryKeyword.length > 100) {
+		interaction.reply({embeds:[raffleResolverArgsErr('Invalid raffle keyword specified.')], ephemeral: true}).catch(e => {console.log(`WARN Invalid keyword was specified to resolve raffle, but reply failed:\n${e}`)});
 		return;
 	}
-	if (args[1].length < 0 || args[1].length > 100) {
-		raffleResolverArgsErr('Invalid keyword specified.', msg);
+	if (!winnerCount || typeof winnerCount != 'number' || !intCheck(winnerCount) || winnerCount < 1) {
+		interaction.reply({embeds:[raffleResolverArgsErr('Invalid winner count specified.')], ephemeral: true}).catch(e => {console.log(`WARN Invalid winner count was specified to resolve raffle, but reply failed:\n${e}`)});
 		return;
 	}
-	let winnerCount = 1;
-	if (args.length >= 3) {
-		winnerCount = parseInt(args[2]);
-		if (!intCheck(winnerCount)) {
-			raffleResolverArgsErr('Invalid winner count specified.', msg);
-			return;
-		}
+	if (typeof allowDuplicates != 'boolean') {
+		interaction.reply({embeds:[raffleResolverArgsErr('Duplicates flag may only be true or false.')], ephemeral: true}).catch(e => {console.log(`WARN Invalid duplicates flag was specified to resolve raffle, but reply failed:\n${e}`)});
+		return;
 	}
-	let allowDuplicates = false;
-	if (args.length >= 4 && args[4] in ['y', 'yes', 'true', 'duplicates', 'dupes']) allowDuplicates = true;
 
-	db.resolveRaffle(args[1]).then(async res => {
-		let displayMsgChannel = msg.guild.channels.resolve(res.channelID);
-		if (!(displayMsgChannel instanceof Discord.TextChannel)) return; // should always be true so never fires, this is for typescript to stop crying
-		let displayMsg : Discord.Message;
-		try {
-			displayMsg = await displayMsgChannel.messages.fetch(res.messageID);
-		} catch (e) {
-			console.log(`The message initiating the raffle could not be found. Resolving the raffle will be continued. Error: ${e}`);
-		}
-		// no entries
-		if (res.entries.length == 0) {
-			if (displayMsg) {
-				displayMsg.edit(new Discord.MessageEmbed({
-					color: embedColors.Warning,
-					title: `This raffle ${args[1]} has closed!`,
-					description: `Noone participated...`
-				})).catch(e => {`Couldn't edit the resolved raffle: ${e}`});
-			}
-			msg.channel.send(new Discord.MessageEmbed({
-				color: embedColors.Warning,
-				title: 'The results are in!',
-				description: `The raffle ${args[1]} was closed, but noone participated.`,
-			})).catch(e => {`The raffle was resolved with no participants, but the message acquitting this couldn't be sent. \nError: ${e}`});
-			return;
-		}
+	interaction.defer()
+		.then(foo => {
+			db.resolveRaffle(entryKeyword)
+				.then(async res => {
+					let displayMsgChannel = interaction.guild.channels.resolve(res.channelID);
+					if (!(displayMsgChannel instanceof Discord.TextChannel)) return; // should always be true so never fires, this is for typescript to stop crying
+					let displayMsg : Discord.Message;
+					try {
+						displayMsg = await displayMsgChannel.messages.fetch(res.messageID);
+					} catch (e) {
+						console.log(`INFO The message initiating the raffle ${entryKeyword} could not be found. Resolving the raffle will be continued. Error: ${e}`)
+					}
+
+					// noone participated
+					if (res.entries.length == 0) {
+						if (displayMsg) {
+							displayMsg.edit({embeds:[new Discord.MessageEmbed({
+								color: embedColors.Warning,
+								title: `This raffle ${entryKeyword} has closed!`,
+								description: `Noone participated...`
+							})]}).catch(e => console.log(`WARN Resolved raffle message couldn't be edited: ${e}`));
+						}
+						displayMsgChannel.send({embeds:[new Discord.MessageEmbed({
+							color: embedColors.Warning,
+							title: 'The results are in!',
+							description: `The raffle ${entryKeyword} was closed, but noone participated.`,
+						})]}).catch(e => {`WARN The raffle ${entryKeyword}was resolved with no participants, but the message acquitting this couldn't be sent.\nError: ${e}`});
+						return;
+					}
+					
+					// pick winners
+					let winnerIDs : Array<Discord.Snowflake> = []
+					let totalEntries = 0;
+					let distribution : Array<distributionEntry> = [];
+					res.entries.forEach(el => {
+						distribution.push({userID: el.userID, min: totalEntries + 1, max: totalEntries + el.entryCount})
+						totalEntries += el.entryCount;
+					});
+					while (winnerIDs.length < winnerCount) {
+						if (!allowDuplicates && winnerIDs.length >= res.entries.length) break;
+						if (allowDuplicates && winnerIDs.length >= totalEntries) break;
+						let newWinner = findWinnerInArray(distribution,randomInt(1, totalEntries));
+						if (!newWinner) continue; // should theoretically never happen
+						if (!allowDuplicates && winnerIDs.includes(newWinner)) continue;
+						winnerIDs.push(newWinner);
+					}
+					let winnerUsernames : Array<string> = await Promise.all(winnerIDs.map(async id => {
+						let member = await interaction.guild.members.fetch(id);
+						if (member != undefined) return member.user.tag;
+						else return id;
+					}));
+
+					console.log(`INFO Raffle ${entryKeyword} was resolved. Picked winners: ${winnerUsernames}`);
+
+					if (displayMsg) {
+						displayMsg.edit({embeds:[new Discord.MessageEmbed({
+							color: embedColors.Ok,
+							title: `This raffle ${entryKeyword} has closed!`,
+							description: `Winners:\n${winnerUsernames.join('\n')}`
+						})]}).catch(e => console.log(`WARN Couldn't edit the resolved raffle message for ${entryKeyword}:\n${e}`))
+					}
+					displayMsgChannel.send({embeds:[new Discord.MessageEmbed({
+						color: embedColors.Ok,
+						title: 'The results are in!',
+						description: `The raffle ${entryKeyword} was closed.`,
+						fields: [{name: 'Winners', value: winnerUsernames.join('\n')}]
+					})]}).catch(e => {console.log(`WARN The raffle was resolved but the resolve message couldn't be sent.\nSelected winners were ${winnerUsernames.join(',')}\nError: ${e}`)});
 
 
-		let winnerIDs : Array<string> = []
-		let totalEntries = 0;
-		let distribution : Array<distributionEntry> = [];
-		res.entries.forEach(el => {
-			distribution.push({userID: el.userID, min: totalEntries + 1, max: totalEntries + el.entryCount})
-			totalEntries += el.entryCount;
-		});
-		while (winnerIDs.length < winnerCount) {
-			if (!allowDuplicates && winnerIDs.length >= res.entries.length) break;
-			if (allowDuplicates && winnerIDs.length >= totalEntries) break;
-			let newWinner = findWinnerInArray(distribution,randomInt(1, totalEntries));
-			if (!newWinner) continue; // should theoretically never happen
-			if (!allowDuplicates && winnerIDs.includes(newWinner)) continue;
-			winnerIDs.push(newWinner);
-		}
-		let winnerUsernames : Array<string> = await Promise.all(winnerIDs.map(async id => {
-			let member = await msg.guild.members.fetch(id);
-			if (member != undefined) return member.user.tag;
-			else return id;
-		}));
-		if (displayMsg) {
-			displayMsg.edit(new Discord.MessageEmbed({
-				color: embedColors.Ok,
-				title: `This raffle ${args[1]} has closed!`,
-				description: `Winners:\n${winnerUsernames.join('\n')}`
-			})).catch(e => {`Couldn't edit the resolved raffle: ${e}`})
-		}
-		msg.channel.send(new Discord.MessageEmbed({
-			color: embedColors.Ok,
-			title: 'The results are in!',
-			description: `The raffle ${args[1]} was closed.`,
-			fields: [{name: 'Winners', value: winnerUsernames.join('\n')}]
-		})).catch(e => {`The raffle was resolved but the resolve message couldn't be sent.\nSelected winners were ${winnerUsernames.join(',')}\nError: ${e}`});
-	}).catch(e => {
-		if (e.message.includes('Couldn\'t find raffle to resolve')) raffleResolverArgsErr('Couldn\'t find your specified raffle.', msg)
-		else raffleResolverArgsErr('Something went wrong...', msg, 'The error has been dumped to the console.');
-		console.log(e);
-	})
-
+				})
+				.catch(e => {
+					if (e.message.includes('Couldn\'t find raffle to resolve')){
+						interaction.editReply({embeds: [raffleResolverArgsErr('Couldn\'t find your specified raffle.')]})
+							.then(msg => console.log(`INFO User attempted to resolve raffle with keyword ${entryKeyword}, but wasn't found`))
+							.catch(msgE => console.log(`WARN User attempted to resolve raffle with keyword ${entryKeyword}, but wasn't found - user couldn't be notified of this:\n${msgE}`));
+					}
+					else {
+						interaction.editReply({embeds: [raffleResolverArgsErr('Something went wrong...', 'The error has been dumped to the console.')]})
+							.then(msg => console.log(`WARN Something went wrong while attempting to resolve a raffle:${e}`))
+							.catch(msgE => console.log(`WARN Something went wrong while attempting to resolve a raffle, additionally user couldn't be notified of this. Resolve error:\n${e}\n****\n${msgE}`));
+					}
+					return;
+				})
+		}).catch(e => {console.log(`WARN Deferring the resolve interaction failed:\n${e}`)})
 }
 
 function raffleResolverArgsErr(errType: string, details?: string) : Discord.MessageEmbed {
@@ -671,4 +685,4 @@ async function showCredits(interaction: Discord.CommandInteraction) : Promise<vo
 client.login(discordToken).catch(err => {
 	console.error("Couldn't log in: " + err)
 	process.exit(1);
-});
+	});
