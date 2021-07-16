@@ -312,6 +312,7 @@ async function raffleCreator(interaction: Discord.CommandInteraction) : Promise<
 					db.createRaffle(targetMsg, entryKeyword, entryCost)
 						.then(success => {
 							if (success) {
+								// TODO Edit the message to have a button that allows easy entering
 								targetMsg.edit({embeds: [
 									new Discord.MessageEmbed({
 										color: embedColors.Default,
@@ -371,57 +372,60 @@ function raffleCreatorArgsErr(errType: string) : Discord.MessageEmbed {
 }
 
 async function raffleEnterer(interaction: Discord.CommandInteraction) : Promise<void> {
-	// TODO
-}
+	const {value: entryKeyword} = interaction.options.get('keyword');
+	let {value: entryAmount} = interaction.options.get('ticketAmount');
+	if (!entryKeyword || typeof entryKeyword != 'string' || entryKeyword.length > 100) {
+		interaction.reply({embeds: [raffleEnterArgsErr('Invalid keyword specified.')], ephemeral: true})
+			.catch(e => {console.log(`WARN Couldn't reply to interaction after invalid keyword was specified for entering a raffle:${e}`)})
+		return;
+	}
 
-async function raffleEntererOld(args : Array<string>, msg: Discord.Message) : Promise<void> {
-	if (args.length < 2) {
-		raffleEnterArgsErr('No raffle keyword specified.', msg);
+	if (!entryAmount || typeof entryAmount != 'number' || !intCheck(entryAmount) || entryAmount < 0) {
+		interaction.reply({embeds: [raffleEnterArgsErr('Invalid ticket amount specified.')], ephemeral: true})
+			.catch(e => {console.log(`WARN Couldn't reply to interaction after invalid keyword was specified for entering a raffle:${e}`)})
 		return;
 	}
-	if (args[1].length == 0 || args[1].length > 100) {
-		raffleEnterArgsErr('Invalid keyword specified.', msg);
-		return;
-	}
-	let entryAmount : number | undefined;
-	if (args.length >= 3) {
-		entryAmount = parseInt(args[2]);
-		if (!intCheck(entryAmount) || entryAmount < 0) {
-			raffleEnterArgsErr('Invalid ticket amount specified.', msg);
-			return;
-		}
-	}
-	db.enterRaffle(msg.author, args[1], entryAmount)
+
+	db.enterRaffle(interaction.user, entryKeyword, entryAmount)
 		.then(res => {
-			msg.channel.send(new Discord.MessageEmbed({
+			interaction.reply({embeds:[new Discord.MessageEmbed({
 				color: embedColors.Ok,
-				author: {name:msg.author.username, iconURL: msg.author.avatarURL()},
-				title: `Entered raffle ${args[1]}.`,
+				author: {name: interaction.user.username, iconURL: interaction.user.avatarURL()},
+				title: `Entered raffle ${entryKeyword}.`,
 				description: `New ticket balance: ${res.newBalance} 🎟`
-			})).catch(e => console.log(`Couldn't send message: ${e}`));
-			let displayMsgChannel = msg.guild.channels.resolve(res.channelID);
+				})],
+				ephemeral: true
+			}).catch(e => {`WARN User entered raffle, but couldn't reply to interaction:\n${e}`});
+			let displayMsgChannel = interaction.guild.channels.resolve(res.channelID);
 			if (displayMsgChannel instanceof Discord.TextChannel) {
 				displayMsgChannel.messages.fetch(res.messageID)
 					.then(displayMsg => {
 						let embed : Discord.MessageEmbed = displayMsg.embeds[0];
 						embed.fields[0].value = String(parseInt(embed.fields[0].value) + res.entryAmount);
-						displayMsg.edit(embed).catch(e => {`Couldn't edit raffle display message: ${e}`});
+						displayMsg.edit({embeds: [embed]}).catch(e => {`WARN Couldn't edit raffle display message after entry:\n${e}`});
 					})
-					.catch(e => {`Couldn't find raffle display message to edit: ${e}`})
+					.catch(e => {`WARN Couldn't find raffle display message to edit after entry:\n${e}`})
 			}
-		})
-		.catch(e => {
-			if (e.message.includes('User does not have enough tickets to enter.')) raffleEnterArgsErr('You don\'t have enough tickets.', msg);
-			else if (e.message.includes('which has min. ticket count of')) raffleEnterArgsErr('You are trying to enter with too few tickets.', msg);
-			else if (e.message.includes('No active raffle found with associated keyword')) raffleEnterArgsErr('That raffle does not exist.', msg);
-			else if (e.message.includes('User is already entered into free raffle')) raffleEnterArgsErr('Free raffles can only have one entry per user.', msg);
-			else {
-				raffleEnterArgsErr('Something went wrong...', msg, 'The error has been dumped to the console.');
-				console.log(e);
+		}).catch(e => {
+			if (e.message.includes('User does not have enough tickets to enter.')) {
+				interaction.reply({embeds:[raffleEnterArgsErr('You don\'t have enough tickets.')]})
+				.catch(e=>{`WARN User doesn't have enough tickets but couldn't be replied to:\n${e}`});
+			} else if (e.message.includes('which has min. ticket count of')) {
+				interaction.reply({embeds:[raffleEnterArgsErr('You are trying to enter with too few tickets.')]})
+				.catch(e=>{`WARN User doesn't have enough tickets but couldn't be replied to:\n${e}`});
+			} else if (e.message.includes('No active raffle found with associated keyword')) {
+				interaction.reply({embeds:[raffleEnterArgsErr('That raffle does not exist.')]})
+				.catch(e=>{`WARN User doesn't have enough tickets but couldn't be replied to:\n${e}`});
+			} else if (e.message.includes('User is already entered into free raffle')) {
+				interaction.reply({embeds:[raffleEnterArgsErr('Free raffles can only have one entry per user.')]})
+				.catch(e=>{`WARN User doesn't have enough tickets but couldn't be replied to:\n${e}`});
+			} else {
+				interaction.reply({embeds:[raffleEnterArgsErr('Something went wrong...', 'The error has been dumped to the console.')]})
+				.catch(e=>{`ERR Something unexpected went wrong while entering a raffle:\n${e}`});
 			}
-
 		});
 }
+
 
 function raffleEnterArgsErr(errType: string, details? : string) : Discord.MessageEmbed {
 	let embed = new Discord.MessageEmbed({color: embedColors.Error, title: errType, description: details ? details : "Joining raffles takes either one or two arguments:"});
@@ -435,12 +439,12 @@ function raffleEnterArgsErr(errType: string, details? : string) : Discord.Messag
 }
 
 interface distributionEntry {
-	userID: string,
+	userID: Discord.Snowflake,
 	min: number,
 	max: number
 }
 
-function randomInt(min: number, max: number) { //MDN
+function randomInt(min: number, max: number) { // MDN
 	min = Math.ceil(min);
 	max = Math.floor(max);
 	return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -458,6 +462,8 @@ function findWinnerInArray(list: Array<distributionEntry>, value: number): strin
 }
 
 async function raffleResolver(interaction: Discord.CommandInteraction) : Promise<void> {
+	if (!authorHasPermission(interaction)) return;
+	const {value: entryKeyword} = interaction.options.get('keyword');
 	// TODO
 }
 

@@ -101,8 +101,8 @@ export async function createRaffle(displayMsg: Discord.Message, entryKeyword: st
 interface enterRaffleResponse {
 	newBalance: number,
 	entryAmount: number,
-	channelID: string,
-	messageID: string
+	channelID: Discord.Snowflake,
+	messageID: Discord.Snowflake
 }
 
 export async function enterRaffle(user: Discord.User, entryKeyword: string, ticketAmount?: number): Promise<enterRaffleResponse> { // returns users new ticket count
@@ -158,8 +158,8 @@ interface raffleEntry {
 
 interface resolveRaffleResponse {
 	entries: Array<raffleEntry>,
-	channelID: string,
-	messageID: string
+	channelID: Discord.Snowflake,
+	messageID: Discord.Snowflake
 }
 
 export async function resolveRaffle(entryKeyword: string): Promise<resolveRaffleResponse> {
