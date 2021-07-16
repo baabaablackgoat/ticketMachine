@@ -4,7 +4,7 @@
   "description": "a small discord bot for handling giveaways and raffles with ticket entries",
   "main": "dist/run.js",
   "dependencies": {
-    "discord.js": "^13.0.0-dev.fe6cc0c.1625227356",
+    "discord.js": "^13.0.0-dev.f200f14.1626436969",
     "mariadb": "^2.5.4",
     "moment": "^2.29.1",
     "string-argv": "^0.3.1"

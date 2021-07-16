@@ -160,7 +160,7 @@ client.on('ready', () => {
 	}
 });
 
-client.on('interaction', interaction => {
+client.on('interactionCreate', interaction => {
 	if (interaction.isCommand()) { // Slash command interactions
 		if (!interaction.user) {
 			console.log(`ERR A command interaction was recieved, but it had no user associated to it.`);
@@ -193,7 +193,7 @@ client.on('interaction', interaction => {
 				break;
 		}
 	} else if (interaction.isButton()) { // Button interactions
-		if (interaction.customID && interaction.customID.startsWith('award_')) ticketEventAwarder(interaction);
+		if (interaction.customId && interaction.customId.startsWith('award_')) ticketEventAwarder(interaction);
 	}
 });
 
@@ -213,7 +213,8 @@ function authorHasPermission(interaction: Discord.CommandInteraction){
 		APIGuildMember does not support .has() because it is just the Bitfield, and not a discord.js Permissions object (which extends bitfield according to the docs)
 		It might be reasonable to raise an issue for this on discord.js's repository. Use this as a screenshot: https://i.imgur.com/ZHkffpR.png
 	*/
-	let permissions = <Discord.Permissions>interaction.member.permissions;
+	let permissions = new Discord.Permissions(interaction.member.permissions);
+	console.log(permissions);
 	// TODO something about this is broken
 	if (!permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)){
 		interaction.reply({
@@ -647,7 +648,7 @@ async function eventCreator(interaction: Discord.CommandInteraction) : Promise<v
 					title: description,
 					description: `To collect your ${ticketAmount} 🎟, click the button below!`,
 					})],
-					components: [new Discord.MessageActionRow().addComponents(new Discord.MessageButton({customID: `award_${eventID}`, emoji:'🎟', label: 'Redeem', style: 'SUCCESS'}))]
+					components: [new Discord.MessageActionRow().addComponents(new Discord.MessageButton({customId: `award_${eventID}`, emoji:'🎟', label: 'Redeem', style: 'SUCCESS'}))]
 				}).catch(e => {
 					interaction.editReply({embeds:[eventCreatorArgsErr('Redemption message couldn\'t be edited. Do I have permissions?')]})
 						.then(foo => {console.log(`WARN Couldn't send redemption message:\n${e}`)})
@@ -671,7 +672,7 @@ async function eventCreator(interaction: Discord.CommandInteraction) : Promise<v
 async function ticketEventAwarder(interaction: Discord.ButtonInteraction) {
 	if (!interaction.guild) {console.log(`ERR Button Interaction for awards was called outside of guild`); return;}
 	// buttonID starts with award_ followed by eventID
-	let eventID : number = parseInt(interaction.customID.substring(6))
+	let eventID : number = parseInt(interaction.customId.substring(6))
 	if (Number.isNaN(eventID)) {
 		console.log(`ERR Event ID that was recieved through button interaction is not a number`);
 		return;
@@ -741,7 +742,7 @@ async function ticketEventCloser(message: Discord.Message) {
 			color: embedColors.Info,
 			title: 'This ticket awarding ceremony has ended!',
 		})],
-		components: [new Discord.MessageActionRow().addComponents(new Discord.MessageButton({customID: `expired`, emoji:'🎟', label: 'Redeem', style: 'SECONDARY', disabled: true}))]
+		components: [new Discord.MessageActionRow().addComponents(new Discord.MessageButton({customId: `expired`, emoji:'🎟', label: 'Redeem', style: 'SECONDARY', disabled: true}))]
 	})
 		.catch(e => {console.log(`WARN Couldn't edit award message:\n${e}`)})
 }
