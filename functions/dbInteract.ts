@@ -53,7 +53,7 @@ export async function createEvent(ticketValue: number, expiresAt: Moment.Moment,
 	let con: MariaDB.PoolConnection;
 	try {
 		con = await pool.getConnection();
-		const res = await con.query('INSERT INTO awardEvents (ticketValue, expiry, displayMessageID) VALUES (?, ?, ?)', [ticketValue, expiresAt.format('YYYY-MM-DD HH:mm:ss'), message.id]);
+		const res = await con.query('INSERT INTO awardEvents (ticketValue, expiry, displayMessageID, guildID, channelID) VALUES (?, ?, ?, ?, ?)', [ticketValue, expiresAt.format('YYYY-MM-DD HH:mm:ss'), message.id, message.guild.id, message.channel.id]);
 		return res.insertId;
 	}
 	catch (e) { throw new Error(`DB Error occurred during createEvent: ${e}`)}
@@ -71,7 +71,7 @@ export async function awardUserTickets(user: Discord.User, eventID: number): Pro
 		if (Moment(eventRows[0].expiry).isBefore(Moment())) {
 			throw new Error(`Event has closed recently`);
 		}
-		const participatedRows = await con.query('SELECT * FROM eventParticipations WHERE userID = ? AND id = ?', [user.id, eventID]);
+		const participatedRows = await con.query('SELECT * FROM eventParticipations WHERE userID = ? AND eventID = ?', [user.id, eventID]);
 		if (participatedRows.length > 0) return false;
 
 		let eventVal = eventRows[0].ticketValue;
@@ -92,21 +92,29 @@ export async function awardUserTickets(user: Discord.User, eventID: number): Pro
 
 interface expiredEventResponse {
 	id: number,
-	displayMessageID: Discord.Snowflake
+	displayMessageID: Discord.Snowflake,
+	channelID: Discord.Snowflake,
+	guildID: Discord.Snowflake
 }
 
-export async function checkForExpiredEvents(): Promise<Array<Discord.Snowflake>> {
+interface foundExpiredEvents {
+	messageID: Discord.Snowflake,
+	channelID: Discord.Snowflake,
+	guildID: Discord.Snowflake
+}
+
+export async function checkForExpiredEvents(): Promise<Array<foundExpiredEvents>> {
 	let con: MariaDB.PoolConnection;
 	try {
 		con = await pool.getConnection();
-		const expiredRows : Array<expiredEventResponse> = await con.query('SELECT id, displayMessageID FROM awardEvents WHERE `expiresAt` < NOW()');
+		// TODO this query returns nothing
+		const expiredRows : Array<expiredEventResponse> = await con.query('SELECT id, displayMessageID, channelID, guildID FROM awardEvents WHERE active = true AND TIMESTAMPDIFF(SECOND, expiry, NOW()) < 0');
 		if (expiredRows.length == 0) {
 			return [];
 		} else {
-			let out : Array<Discord.Snowflake> = [];
-			for (let i = 0; i < expiredRows.length - 1; i++) {
-				if (!expiredRows[i].displayMessageID || !expiredRows[i].id) continue;
-				out.push(expiredRows[i].displayMessageID);
+			let out : Array<foundExpiredEvents> = [];
+			for (let i = 0; i < expiredRows.length; i++) {
+				out.push({messageID: expiredRows[i].displayMessageID, channelID: expiredRows[i].channelID, guildID: expiredRows[i].guildID});
 				closeExpiredEvent(expiredRows[i].id);
 			}
 			return out;

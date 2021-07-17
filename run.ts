@@ -158,6 +158,8 @@ client.on('ready', () => {
 		// TODO: *maybe* enable global command registration, alternatively only register in the guilds where it's connected to
 		console.log(`no global commands implemented yet`);
 	}
+
+	const expiredEventCheckInterval = setInterval(checkForExpiredEvents, 60*1000);
 });
 
 client.on('interactionCreate', interaction => {
@@ -211,7 +213,9 @@ async function authorHasPermission(interaction: Discord.CommandInteraction) : Pr
 	let temp = interaction.member as Discord.GuildMember;
 	try {
 		let targetMember = await temp.fetch()	
-		if (targetMember.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)) return true;
+		if (targetMember.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)) {
+			return true;
+		}
 		else {
 			interaction.reply({
 				embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'You don\'t have access to this command.', description: `🛠 You need MANAGE_GUILD to use ${interaction.commandName}.`})],
@@ -236,8 +240,9 @@ function intCheck(a: number | string | boolean) : boolean {
 
 async function ticketBalanceDisplayer(interaction: Discord.CommandInteraction) : Promise<void> {
 	let targetUser = interaction.options?.get('user')?.user;
-	if (targetUser && targetUser != interaction.user) {
-		if (!authorHasPermission(interaction)) return;
+	if (targetUser && targetUser.id != interaction.user.id) {
+		let hasPermission = await authorHasPermission(interaction);
+		if (!hasPermission) return;
 	} else targetUser = interaction.user;
 	const bal = await db.getUserTicketCount(targetUser);
 	if (bal == undefined) { // no balance found
@@ -255,7 +260,8 @@ async function ticketBalanceDisplayer(interaction: Discord.CommandInteraction) :
 }
 
 async function ticketGiver(interaction: Discord.CommandInteraction) : Promise<void> {
-	if (!authorHasPermission(interaction)) return;
+	let hasPermission = await authorHasPermission(interaction);
+	if (!hasPermission) return;
 	const targetUser = interaction.options.get('user').user;
 	const ticketAmount = interaction.options.get('amount').value;
 	if (!intCheck(ticketAmount)) {
@@ -281,7 +287,8 @@ async function ticketGiver(interaction: Discord.CommandInteraction) : Promise<vo
 }
 
 async function raffleCreator(interaction: Discord.CommandInteraction) : Promise<void> {
-	if (!authorHasPermission(interaction)) return;
+	let hasPermission = await authorHasPermission(interaction);
+	if (!hasPermission) return;
 	const entryKeyword = interaction.options.get('keyword').value;
 	const raffleDescription = interaction.options.get('description')?.value ?? entryKeyword;
 	const entryCost = interaction.options.get('minentryfee')?.value ?? 1;
@@ -346,7 +353,6 @@ async function raffleCreator(interaction: Discord.CommandInteraction) : Promise<
 					db.createRaffle(targetMsg, entryKeyword, entryCost)
 						.then(success => {
 							if (success) {
-								// TODO Edit the message to have a button that allows easy entering
 								targetMsg.edit({
 									content: ' ',
 									embeds: [
@@ -507,7 +513,8 @@ function findWinnerInArray(list: Array<distributionEntry>, value: number): Disco
 }
 
 async function raffleResolver(interaction: Discord.CommandInteraction) : Promise<void> {
-	if (!authorHasPermission(interaction)) return;
+	let hasPermission = await authorHasPermission(interaction);
+	if (!hasPermission) return;
 	const entryKeyword = interaction.options.get('keyword').value;
 	const winnerCount = interaction.options.get('winnercount')?.value ?? 1;
 	const allowDuplicates = interaction.options.get('duplicates')?.value ?? false;
@@ -544,7 +551,9 @@ async function raffleResolver(interaction: Discord.CommandInteraction) : Promise
 								color: embedColors.Warning,
 								title: `This raffle ${entryKeyword} has closed!`,
 								description: `Noone participated...`
-							})]}).catch(e => console.log(`WARN Resolved raffle message couldn't be edited: ${e}`));
+							})],
+							components: [new Discord.MessageActionRow().addComponents(new Discord.MessageButton({customId: `expired`, emoji:'✍', label: 'Join', style: 'SECONDARY', disabled: true}))]
+							}).catch(e => console.log(`WARN Resolved raffle message couldn't be edited: ${e}`));
 						}
 						displayMsgChannel.send({embeds:[new Discord.MessageEmbed({
 							color: embedColors.Warning,
@@ -590,7 +599,9 @@ async function raffleResolver(interaction: Discord.CommandInteraction) : Promise
 							color: embedColors.Ok,
 							title: `This raffle ${entryKeyword} has closed!`,
 							description: `Winners:\n${winnerUsernames.join('\n')}`
-						})]}).catch(e => console.log(`WARN Couldn't edit the resolved raffle message for ${entryKeyword}:\n${e}`))
+						})],
+						components: [new Discord.MessageActionRow().addComponents(new Discord.MessageButton({customId: `expired`, emoji:'✍', label: 'Join', style: 'SECONDARY', disabled: true}))]
+						}).catch(e => console.log(`WARN Couldn't edit the resolved raffle message for ${entryKeyword}:\n${e}`))
 					}
 					displayMsgChannel.send({embeds:[new Discord.MessageEmbed({
 						color: embedColors.Ok,
@@ -630,7 +641,9 @@ function raffleResolverArgsErr(errType: string, details?: string) : Discord.Mess
 }
 
 async function eventCreator(interaction: Discord.CommandInteraction) : Promise<void> {
-	if (!authorHasPermission(interaction)) return;
+	let hasPermission = await authorHasPermission(interaction);
+	if (!hasPermission) return;
+
 	const ticketAmount = interaction.options?.get('value')?.value ?? 1;
 	const targetChannel = interaction.options?.get('messagechannel')?.channel ?? interaction.channel;
 	const description = interaction.options?.get('description')?.value ?? 'A pile of tickets lies on the ground.';
@@ -779,11 +792,20 @@ async function ticketEventCloser(message: Discord.Message) : Promise<void> {
 }
 
 async function checkForExpiredEvents() : Promise<void> {
-	let expiredMessages : Array<Discord.Snowflake> = await db.checkForExpiredEvents();
+	let expiredMessages = await db.checkForExpiredEvents();
 	if (expiredMessages.length > 0) {
 		for (let i = 0; i < expiredMessages.length; i++) {
-			console.log(`${expiredMessages[i]} has expired pls find guild thanks`)
-			// TODO oh god oh fuck
+			let targetGuild = await client.guilds.fetch(expiredMessages[i].guildID);
+			if (targetGuild) {
+				let targetChannel = await targetGuild.channels.fetch(expiredMessages[i].channelID);
+				if (targetChannel && targetChannel.isText()) {
+					let targetMessage = await targetChannel.messages.fetch(expiredMessages[i].messageID);
+					if (targetMessage) {
+						ticketEventCloser(targetMessage);
+						console.log(`INFO A distribution event has expired and was closed.`)
+					}
+				}
+			}
 		}
 	}
 }
@@ -820,6 +842,3 @@ client.login(discordToken).catch(err => {
 	console.error("Couldn't log in: " + err)
 	process.exit(1);
 });
-client
-	.on("debug", console.log)
-	.on("warn", console.log);
