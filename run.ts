@@ -131,13 +131,33 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 	}
 ];
 
+async function registerSlashCommands() {
+	// to run once on startup, and maybe to allow re-doing this in later patches (re-deploy from cli maybe?)
+	let knownGuilds = await client.guilds.fetch();
+	knownGuilds.forEach(guild => {
+		guild.fetch()
+			.then(guild => {
+				guild.commands.set(allCommands)
+					.then(setCommands => {
+						console.log(`INFO Slash commands registered in guild ${guild.name} (${guild.id})`);
+					})
+					.catch(err => {
+						if (err.message.includes('Missing Access')) {
+							console.log(`WARN Slash commands rejected by guild ${guild.name} (${guild.id}) - Re-authenticate the bot in this guild with slash commands enabled.\n${err}`)
+						}
+						console.log(`WARN Slash commands couldn't be registered in guild ${guild.name} (${guild.id}):\n${err}`)
+					});
+			})
+	});
+}
+
 client.on('ready', () => {
 	console.log(`INFO Discord - Logged in. ${client.user.tag} Attempting to register slash commands...`);
-	if (process.argv.includes('--test')) { // test guild slash commands
+	if (process.argv.includes('--test')) { // test in only one guild, as defined in environment variables
 		const testingGuildID = <Discord.Snowflake>getEnv('DISCORD_TICKETS_TESTGUILDID');
 		let targetGuild = client.guilds.resolve(testingGuildID);
 		/* 
-		// In case you want to isolate which command is acting up I guess
+		// In case you want to isolate which command is acting up. *This will take time - you will get ratelimited a bit during execution*
 		for (let i = 0; i < allCommands.length; i++) {
 			targetGuild.commands.create(allCommands[i])
 				.then(registeredCommand => console.log(`INFO Slash command ${allCommands[i].name} registered`))
@@ -154,11 +174,11 @@ client.on('ready', () => {
 				process.exit(1);
 			})
 
-	} else { // global slash commands
-		// TODO: *maybe* enable global command registration, alternatively only register in the guilds where it's connected to
-		console.log(`no global commands implemented yet`);
+	} else { // attempt to roll out commands to all known guilds
+		registerSlashCommands();
 	}
 
+	// event expiry interval
 	const expiredEventCheckInterval = setInterval(checkForExpiredEvents, 60*1000);
 });
 

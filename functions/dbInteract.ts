@@ -7,7 +7,21 @@ import * as Discord from 'discord.js';
 import * as Moment from 'moment';
 import getEnv from './getEnv';
 
-const pool = MariaDB.createPool({user: 'root', password: getEnv('DISCORD_TICKETS_DBPASS'), connectionLimit: 5, database: 'ticketDB'});
+export async function resetDBPool() {
+	console.log('INFO DB Pool resetting.');
+	if (pool) {
+		try {
+			await pool.end();
+		} catch (e) {
+			console.log(`WARN Failed to reset pool:\n${e}`);
+		}
+		
+	}
+	pool = MariaDB.createPool({user: 'root', password: getEnv('DISCORD_TICKETS_DBPASS'), connectionLimit: 5, database: 'ticketDB'});
+}
+
+let pool;
+resetDBPool();
 
 export async function getUserTicketCount(user: Discord.User) : Promise<number> {
 	let con: MariaDB.PoolConnection;
