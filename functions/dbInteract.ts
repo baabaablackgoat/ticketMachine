@@ -71,7 +71,7 @@ export async function awardUserTickets(user: Discord.User, eventID: number): Pro
 		if (Moment(eventRows[0].expiry).isBefore(Moment())) {
 			throw new Error(`Event has closed recently`);
 		}
-		const participatedRows = await con.query('SELECT * FROM eventParticipations WHERE userID = ? AND eventID = ?', [user.id, eventID]);
+		const participatedRows = await con.query('SELECT * FROM eventParticipations WHERE userID = ? AND id = ?', [user.id, eventID]);
 		if (participatedRows.length > 0) return false;
 
 		let eventVal = eventRows[0].ticketValue;
@@ -124,8 +124,8 @@ export async function closeExpiredEvent(eventID: number) : Promise<Discord.Snowf
 	let con: MariaDB.PoolConnection;
 	try {
 		con = await pool.getConnection();
-		await con.query('UPDATE awardEvents SET active = false WHERE eventID = ?', eventID);
-		const messageIDResponse : Array<freshlyClosedEventResponse> = await con.query('SELECT displayMessageID FROM awardEvents WHERE active = false AND eventID = ?', eventID);
+		await con.query('UPDATE awardEvents SET active = false WHERE id = ?', eventID);
+		const messageIDResponse : Array<freshlyClosedEventResponse> = await con.query('SELECT displayMessageID FROM awardEvents WHERE active = false AND id = ?', eventID);
 		if (messageIDResponse.length == 0) throw new Error(`DB error occurred while closing expired event ${eventID} - updated row not found`);
 		return messageIDResponse[0].displayMessageID;
 	} catch (e) { throw new Error(`DB Error occurred during closeExpiredEvent: ${e}`); }
