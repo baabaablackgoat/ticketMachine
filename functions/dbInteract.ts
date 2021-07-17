@@ -4,9 +4,24 @@ Some parts of this code should be slightly reworked to remove redundancies (like
 
 import * as MariaDB from 'mariadb';
 import * as Discord from 'discord.js';
+import * as Moment from 'moment';
 import getEnv from './getEnv';
 
-const pool = MariaDB.createPool({user: 'root', password: getEnv('DISCORD_TICKETS_DBPASS'), connectionLimit: 5, database: 'ticketDB'});
+export async function resetDBPool() {
+	console.log('INFO DB Pool resetting.');
+	if (pool) {
+		try {
+			await pool.end();
+		} catch (e) {
+			console.log(`WARN Failed to reset pool:\n${e}`);
+		}
+		
+	}
+	pool = MariaDB.createPool({user: 'root', password: getEnv('DISCORD_TICKETS_DBPASS'), connectionLimit: 5, database: 'ticketDB'});
+}
+
+let pool;
+resetDBPool();
 
 export async function getUserTicketCount(user: Discord.User) : Promise<number> {
 	let con: MariaDB.PoolConnection;
@@ -48,11 +63,11 @@ export async function setUserTickets(user: Discord.User, val: number): Promise<n
 	finally { if (con) con.release(); }
 }
 
-export async function createEvent(ticketValue: number): Promise<number> {
+export async function createEvent(ticketValue: number, expiresAt: Moment.Moment, message: Discord.Message): Promise<number> {
 	let con: MariaDB.PoolConnection;
 	try {
 		con = await pool.getConnection();
-		const res = await con.query('INSERT INTO awardEvents (ticketValue) VALUES (?)', ticketValue);
+		const res = await con.query('INSERT INTO awardEvents (ticketValue, expiry, displayMessageID, guildID, channelID) VALUES (?, ?, ?, ?, ?)', [ticketValue, expiresAt.format('YYYY-MM-DD HH:mm:ss'), message.id, message.guild.id, message.channel.id]);
 		return res.insertId;
 	}
 	catch (e) { throw new Error(`DB Error occurred during createEvent: ${e}`)}
@@ -64,8 +79,12 @@ export async function awardUserTickets(user: Discord.User, eventID: number): Pro
 	let con: MariaDB.PoolConnection;
 	try {
 		con = await pool.getConnection();
-		const eventRows = await con.query('SELECT ticketValue FROM awardEvents WHERE id = ?', [eventID]);
+		const eventRows = await con.query('SELECT ticketValue, expiry, active FROM awardEvents WHERE id = ?', [eventID]);
 		if (eventRows.length == 0) throw new Error('Event does not exist');
+		if (!eventRows[0].active) throw new Error('Event is closed');
+		if (Moment(eventRows[0].expiry).isBefore(Moment())) {
+			throw new Error(`Event has closed recently`);
+		}
 		const participatedRows = await con.query('SELECT * FROM eventParticipations WHERE userID = ? AND eventID = ?', [user.id, eventID]);
 		if (participatedRows.length > 0) return false;
 
@@ -85,6 +104,56 @@ export async function awardUserTickets(user: Discord.User, eventID: number): Pro
 	finally { if (con) con.release(); }
 }
 
+interface expiredEventResponse {
+	id: number,
+	displayMessageID: Discord.Snowflake,
+	channelID: Discord.Snowflake,
+	guildID: Discord.Snowflake
+}
+
+interface foundExpiredEvents {
+	messageID: Discord.Snowflake,
+	channelID: Discord.Snowflake,
+	guildID: Discord.Snowflake
+}
+
+export async function checkForExpiredEvents(): Promise<Array<foundExpiredEvents>> {
+	let con: MariaDB.PoolConnection;
+	try {
+		con = await pool.getConnection();
+		// TODO this query returns nothing
+		const expiredRows : Array<expiredEventResponse> = await con.query('SELECT id, displayMessageID, channelID, guildID FROM awardEvents WHERE active = true AND TIMESTAMPDIFF(SECOND, expiry, NOW()) < 0');
+		if (expiredRows.length == 0) {
+			return [];
+		} else {
+			let out : Array<foundExpiredEvents> = [];
+			for (let i = 0; i < expiredRows.length; i++) {
+				out.push({messageID: expiredRows[i].displayMessageID, channelID: expiredRows[i].channelID, guildID: expiredRows[i].guildID});
+				closeExpiredEvent(expiredRows[i].id);
+			}
+			return out;
+		}
+	}
+	catch (e) { throw new Error(`DB Error occurred during checkForExpiredEvents: ${e}`); }
+	finally { if (con) con.release(); }
+}
+
+interface freshlyClosedEventResponse {
+	displayMessageID: Discord.Snowflake
+}
+
+export async function closeExpiredEvent(eventID: number) : Promise<Discord.Snowflake> {
+	let con: MariaDB.PoolConnection;
+	try {
+		con = await pool.getConnection();
+		await con.query('UPDATE awardEvents SET active = false WHERE id = ?', eventID);
+		const messageIDResponse : Array<freshlyClosedEventResponse> = await con.query('SELECT displayMessageID FROM awardEvents WHERE active = false AND id = ?', eventID);
+		if (messageIDResponse.length == 0) throw new Error(`DB error occurred while closing expired event ${eventID} - updated row not found`);
+		return messageIDResponse[0].displayMessageID;
+	} catch (e) { throw new Error(`DB Error occurred during closeExpiredEvent: ${e}`); }
+	finally { if (con) con.release(); }
+}
+
 export async function createRaffle(displayMsg: Discord.Message, entryKeyword: string, entryCost = 1): Promise<boolean> {
 	let con: MariaDB.PoolConnection;
 	try {
@@ -101,8 +170,8 @@ export async function createRaffle(displayMsg: Discord.Message, entryKeyword: st
 interface enterRaffleResponse {
 	newBalance: number,
 	entryAmount: number,
-	channelID: string,
-	messageID: string
+	channelID: Discord.Snowflake,
+	messageID: Discord.Snowflake
 }
 
 export async function enterRaffle(user: Discord.User, entryKeyword: string, ticketAmount?: number): Promise<enterRaffleResponse> { // returns users new ticket count
@@ -152,14 +221,14 @@ export async function enterRaffle(user: Discord.User, entryKeyword: string, tick
 interface raffleEntry {
 	entryID: number,
 	raffleID: number,
-	userID: string,
+	userID: Discord.Snowflake,
 	entryCount: number
 }
 
 interface resolveRaffleResponse {
 	entries: Array<raffleEntry>,
-	channelID: string,
-	messageID: string
+	channelID: Discord.Snowflake,
+	messageID: Discord.Snowflake
 }
 
 export async function resolveRaffle(entryKeyword: string): Promise<resolveRaffleResponse> {

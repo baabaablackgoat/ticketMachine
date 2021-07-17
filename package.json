@@ -4,16 +4,19 @@
   "description": "a small discord bot for handling giveaways and raffles with ticket entries",
   "main": "dist/run.js",
   "dependencies": {
-    "discord.js": "^12.5.3",
-    "mariadb": "^2.5.3",
+    "discord.js": "^13.0.0-dev.f200f14.1626436969",
+    "mariadb": "^2.5.4",
+    "moment": "^2.29.1",
     "string-argv": "^0.3.1"
   },
-  "devDependencies": {},
   "scripts": {
+    "build": "tsc --build ./tsconfig.json",
+
     "prestart": "npm run build",
     "start": "node ./dist/run.js",
-    "build": "tsc --build ./tsconfig.json",
-    "test": "echo \"Error: no test specified\" && exit 1"
+
+    "pretest": "npm run build",
+    "test": "node ./dist/run.js --test"
   },
   "repository": {
     "type": "git",
