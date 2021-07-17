@@ -5,7 +5,7 @@ import getEnv from "./functions/getEnv";
 import * as db from "./functions/dbInteract";
 import embedColors from "./classes/embedColors";
 
-const client = new Discord.Client({intents: [Discord.Intents.FLAGS.GUILD_MESSAGES]});
+const client = new Discord.Client({intents: [Discord.Intents.FLAGS.GUILD_MESSAGES, Discord.Intents.FLAGS.GUILDS]});
 const discordToken = getEnv("DISCORD_TICKETS_TOKEN");
 const allCommands: Array<Discord.ApplicationCommandData> = [
 	// balance command
@@ -197,7 +197,7 @@ client.on('interactionCreate', interaction => {
 	}
 });
 
-function authorHasPermission(interaction: Discord.CommandInteraction){
+async function authorHasPermission(interaction: Discord.CommandInteraction) : Promise<boolean> {
 	// returns true if the member who sent this message has MANAGE_GUILD permissions, otherwise false and sends the invoking user an ephemeral message rejecting command execution.
 	if (!interaction.guild) {
 		interaction.reply({
@@ -208,24 +208,26 @@ function authorHasPermission(interaction: Discord.CommandInteraction){
 		.catch(e => {console.log(`WARN ${interaction.commandName} execution was rejected for ${interaction.user.tag}, but the reply could not be sent:\n${e}`)});
 		return false;
 	}
-	/* 	
-		The line below is necessary because it is possible that interaction.member can resolve as APIGuildMember and not as GuildMember.
-		APIGuildMember does not support .has() because it is just the Bitfield, and not a discord.js Permissions object (which extends bitfield according to the docs)
-		It might be reasonable to raise an issue for this on discord.js's repository. Use this as a screenshot: https://i.imgur.com/ZHkffpR.png
-	*/
-	let permissions = new Discord.Permissions(interaction.member.permissions);
-	console.log(permissions);
-	// TODO something about this is broken
-	if (!permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)){
+	let temp = interaction.member as Discord.GuildMember;
+	try {
+		let targetMember = await temp.fetch()	
+		if (targetMember.permissions.has(Discord.Permissions.FLAGS.MANAGE_GUILD)) return true;
+		else {
+			interaction.reply({
+				embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'You don\'t have access to this command.', description: `🛠 You need MANAGE_GUILD to use ${interaction.commandName}.`})],
+				ephemeral: true
+			})
+			.then(() => {console.log(`INFO ${interaction.commandName} execution was rejected for ${interaction.user.tag}`)})
+			.catch(e => {console.log(`WARN ${interaction.commandName} execution was rejected for ${interaction.user.tag}, but the reply could not be sent:\n${e}`)})
+			return false;
+		}
+	} catch (err) {
 		interaction.reply({
-			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'You don\'t have access to this command.', description: `🛠 You need MANAGE_GUILD to use ${interaction.commandName}.`})],
+			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Something went wrong while checking your permissions...', description: `🛠 You need MANAGE_GUILD to use ${interaction.commandName}.`})],
 			ephemeral: true
-		})
-		.then(() => {console.log(`INFO ${interaction.commandName} execution was rejected for ${interaction.user.tag}`)})
-		.catch(e => {console.log(`WARN ${interaction.commandName} execution was rejected for ${interaction.user.tag}, but the reply could not be sent:\n${e}`)});
-		return false;
+		}).catch(e => console.log(`WARN Couldn't reply to interaction about permission failure:\n${err}`))
+		console.log(`WARN Couldn't fetch guild member to check permissions:\n${err}`)
 	}
-	return true;
 }
 
 function intCheck(a: number | string | boolean) : boolean {
@@ -775,8 +777,10 @@ async function showCredits(interaction: Discord.CommandInteraction) : Promise<vo
 	}).catch(e => {console.log(`WARN Credits were requested, but the reply couldn't be sent:\n${e}`)});
 }
 
-
 client.login(discordToken).catch(err => {
 	console.error("Couldn't log in: " + err)
 	process.exit(1);
 });
+client
+	.on("debug", console.log)
+	.on("warn", console.log);
