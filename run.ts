@@ -366,7 +366,7 @@ async function raffleCreator(interaction: Discord.CommandInteraction) : Promise<
 		return;
 	}
 
-	interaction.defer({ephemeral: true})
+	interaction.deferReply({ephemeral: true})
 		.then(() => {
 			targetChannel.send({content: `🎟 Preparing a raffle, please wait...`})
 				.then(targetMsg => {
@@ -551,7 +551,7 @@ async function raffleResolver(interaction: Discord.CommandInteraction) : Promise
 		return;
 	}
 
-	interaction.defer({ephemeral: true})
+	interaction.deferReply({ephemeral: true})
 		.then(() => {
 			db.resolveRaffle(entryKeyword)
 				.then(async res => {
@@ -695,7 +695,7 @@ async function eventCreator(interaction: Discord.CommandInteraction) : Promise<v
 
 	let expiryTime = Moment().add(minutes, 'minutes');
 
-	interaction.defer({ephemeral: true})
+	interaction.deferReply({ephemeral: true})
 	.then(() => {
 		targetChannel.send({embeds: [new Discord.MessageEmbed({color: embedColors.Default, title: 'Creating a new event, please wait...'})]})
 		.then(targetMessage => {

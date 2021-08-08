@@ -4,17 +4,15 @@
   "description": "a small discord bot for handling giveaways and raffles with ticket entries",
   "main": "dist/run.js",
   "dependencies": {
-    "discord.js": "^13.0.0-dev.f200f14.1626436969",
+    "discord.js": "^13.0.1",
     "mariadb": "^2.5.4",
     "moment": "^2.29.1",
     "string-argv": "^0.3.1"
   },
   "scripts": {
     "build": "tsc --build ./tsconfig.json",
-
     "prestart": "npm run build",
     "start": "node ./dist/run.js",
-
     "pretest": "npm run build",
     "test": "node ./dist/run.js --test"
   },

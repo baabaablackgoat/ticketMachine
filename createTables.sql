@@ -1,5 +1,5 @@
-CREATE DATABASE `ticketDB` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;
-USE `ticketDB`;
+-- CREATE DATABASE `ticketDB` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;
+-- USE `ticketDB`;
 
 -- set timezone
 SET time_zone = '+00:00';
