@@ -7,15 +7,16 @@ import * as MariaDB from 'mariadb';
 import * as Discord from 'discord.js';
 import * as Moment from 'moment';
 import getEnv from './getEnv';
+import { log, warn, ok, err, info, debug } from './logger';
 
 // reset DB pool for startup and for potential future use in case the pool connection fails
 export async function resetDBPool() {
-	console.log('INFO DB Pool resetting.');
+	log('DB Pool resetting.');
 	if (pool) {
 		try {
 			await pool.end();
 		} catch (e) {
-			console.log(`WARN Failed to reset pool:\n${e}`);
+			warn(e, `Failed to reset DB pool.`);
 		}
 		
 	}
@@ -29,7 +30,7 @@ checkDBIntegrity();
 // check if correct database structure exists - if not, create tables respectively using classes/dbDefinitions scripts
 // eventParticipations and raffleEntries require foreign keys - create these last.
 async function checkDBIntegrity() {
-	console.log(`INFO Checking DB Integrity...`)
+	log(`Checking DB Integrity...`)
 	const allTables = ['users', 'raffles', 'awardEvents', 'raffleEntries', 'eventParticipations'];
 	let con: MariaDB.PoolConnection;
 	try {
@@ -40,9 +41,9 @@ async function checkDBIntegrity() {
 				const query = fs.readFileSync(`./classes/dbDefinitions/${allTables[i]}.sql`).toString();
 				let createdTableRes = await con.query(query);
 				if (createdTableRes.hasOwnProperty('warningStatus') && createdTableRes.warningStatus != 0) {
-					console.log(`ERR Failed to create missing table ${allTables[i]}`);
+					err(`Failed to create missing table ${allTables[i]}`);
 				} else {
-					console.log(`INFO Missing table ${allTables[i]} was created`);
+					log(`Missing table ${allTables[i]} was created`);
 				}
 			} else {
 				// TODO: extend integrity check to also check for correct / missing column definitions and autofix them
