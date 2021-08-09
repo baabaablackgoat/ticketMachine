@@ -2,8 +2,8 @@
 name: Usage bugs
 about: You found a way to break it, please tell me how you did it
 title: 'Usage bug:'
-labels: bug
-assignees: ''
+labels: bug, triage
+assignees: baabaablackgoat
 
 ---
 

@@ -2,8 +2,8 @@
 name: Technical issue
 about: Backend mistakes, security issues, and other flaws I have overlooked
 title: 'Technical: '
-labels: bug
-assignees: ''
+labels: bug, triage
+assignees: baabaablackgoat
 
 ---
 

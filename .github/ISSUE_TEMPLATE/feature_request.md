@@ -2,8 +2,8 @@
 name: Feature request
 about: You just wanna put memes in this bot, don't you
 title: ''
-labels: enhancement
-assignees: ''
+labels: triage
+assignees: baabaablackgoat
 
 ---
 
