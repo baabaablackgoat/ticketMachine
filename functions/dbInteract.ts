@@ -31,10 +31,11 @@ checkDBIntegrity();
 // eventParticipations and raffleEntries require foreign keys - create these last.
 async function checkDBIntegrity() {
 	log(`Checking DB Integrity...`)
+	// TODO check if db exists
 	const allTables = ['users', 'raffles', 'awardEvents', 'raffleEntries', 'eventParticipations'];
 	let con: MariaDB.PoolConnection;
 	try {
-		con = await pool.getConnection();
+		con = await pool.getConnection(); // probably need to move this to a non-pool connection to allow for db presence checking
 		for (let i = 0; i < allTables.length; i++) {
 			let rows = await con.query('SHOW TABLES LIKE ?;', allTables[i]);
 			if (rows.length == 0) { //table does not exist, run respective sql script

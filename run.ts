@@ -265,19 +265,23 @@ async function ticketBalanceDisplayer(interaction: Discord.CommandInteraction) :
 		let hasPermission = await authorHasPermission(interaction);
 		if (!hasPermission) return;
 	} else targetUser = interaction.user;
-	const bal = await db.getUserTicketCount(targetUser);
-	if (bal == undefined) { // no balance found
+	try {
+		const bal = await db.getUserTicketCount(targetUser);
+		if (bal == undefined) { // no balance found
+			interaction.reply({
+				embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Something went wrong...', description: "Couldn't retrieve user data."})],
+				ephemeral: true
+			}).then(msg => {log(`No ticket balance found for ${targetUser.tag}`)})
+				.catch(e => {warn(e, `No ticket balance found for ${targetUser.tag}, and the reply could not be sent.`)});
+			return;
+		}
 		interaction.reply({
-			embeds: [new Discord.MessageEmbed({'color': embedColors.Error, 'title': 'Something went wrong...', description: "Couldn't retrieve user data."})],
+			embeds: [new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `🎟 ${bal}`})],
 			ephemeral: true
-		}).then(msg => {log(`No ticket balance found for ${targetUser.tag}`)})
-			.catch(e => {warn(e, `No ticket balance found for ${targetUser.tag}, and the reply could not be sent.`)});
-		return;
+		}).catch(e => {warn(e, `No ticket balance found for ${targetUser.tag}, and the reply could not be sent.`)});
+	} catch (e) {
+		warn(e, 'DB has thrown an error while running ticketBalanceDisplayer.');
 	}
-	interaction.reply({
-		embeds: [new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `🎟 ${bal}`})],
-		ephemeral: true
-	}).catch(e => {warn(e, `No ticket balance found for ${targetUser.tag}, and the reply could not be sent.`)});
 }
 
 async function ticketGiver(interaction: Discord.CommandInteraction) : Promise<void> {
@@ -299,11 +303,16 @@ async function ticketGiver(interaction: Discord.CommandInteraction) : Promise<vo
 		.catch(e => {log(e, `Give command expects a user, but did not recieve one in the options - and the reply could not be sent. \nInteraction:\n${interaction}`);});
 		return;
 	}
-	const newTickets = await db.addUserTickets(targetUser, Number(ticketAmount));
-	interaction.reply({
-		embeds: [new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `New balance: 🎟 ${newTickets}`})],
-		ephemeral: true
-	}).catch(e => {warn(e, `A user was awarded tickets, but the distributor couldn't recieve the reply.`)});
+	try {
+		const newTickets = await db.addUserTickets(targetUser, Number(ticketAmount));
+		interaction.reply({
+			embeds: [new Discord.MessageEmbed({color: embedColors.Default, author:{name:targetUser.username, iconURL: targetUser.avatarURL()}, title: `New balance: 🎟 ${newTickets}`})],
+			ephemeral: true
+		}).catch(e => {warn(e, `A user was awarded tickets, but the distributor couldn't recieve the reply.`)});
+	} catch (e) {
+
+	}
+	
 
 }
 
@@ -813,21 +822,25 @@ async function ticketEventCloser(message: Discord.Message) : Promise<void> {
 }
 
 async function checkForExpiredEvents() : Promise<void> {
-	let expiredMessages = await db.checkForExpiredEvents();
-	if (expiredMessages.length > 0) {
-		for (let i = 0; i < expiredMessages.length; i++) {
-			let targetGuild = await client.guilds.fetch(expiredMessages[i].guildID);
-			if (targetGuild) {
-				let targetChannel = await targetGuild.channels.fetch(expiredMessages[i].channelID);
-				if (targetChannel && targetChannel.isText()) {
-					let targetMessage = await targetChannel.messages.fetch(expiredMessages[i].messageID);
-					if (targetMessage) {
-						ticketEventCloser(targetMessage);
-						log(`A distribution event has expired and was closed.`)
+	try {
+		let expiredMessages = await db.checkForExpiredEvents();
+		if (expiredMessages.length > 0) {
+			for (let i = 0; i < expiredMessages.length; i++) {
+				let targetGuild = await client.guilds.fetch(expiredMessages[i].guildID);
+				if (targetGuild) {
+					let targetChannel = await targetGuild.channels.fetch(expiredMessages[i].channelID);
+					if (targetChannel && targetChannel.isText()) {
+						let targetMessage = await targetChannel.messages.fetch(expiredMessages[i].messageID);
+						if (targetMessage) {
+							ticketEventCloser(targetMessage);
+							log(`A distribution event has expired and was closed.`)
+						}
 					}
 				}
 			}
 		}
+	} catch (e) {
+		warn(e, 'DB threw an error while running checkForExpiredEvents.');
 	}
 }
 
