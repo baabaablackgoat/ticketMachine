@@ -32,7 +32,7 @@ checkDBIntegrity();
 async function checkDBIntegrity() {
 	log(`Checking DB Integrity...`)
 	// TODO check if db exists
-	const allTables = ['users', 'raffles', 'awardEvents', 'raffleEntries', 'eventParticipations'];
+	const allTables = ['users', 'raffles', 'guilds', 'awardEvents', 'raffleEntries', 'eventParticipations'];
 	let con: MariaDB.PoolConnection;
 	try {
 		con = await pool.getConnection(); // probably need to move this to a non-pool connection to allow for db presence checking
@@ -50,6 +50,7 @@ async function checkDBIntegrity() {
 				// TODO: extend integrity check to also check for correct / missing column definitions and autofix them
 			}
 		}
+		ok('DB integrity check succeded.');
 	}
 	catch (e) {
 		throw new Error(`DB Integrity check failed: ${e}`)
@@ -73,7 +74,7 @@ export async function checkGuildStatus(guildID: Discord.Snowflake) : Promise<Gui
 			info(`Previously unknown guild with ID ${guildID} has been initialized with default values.`);
 			return defaultGuildData;
 		} else { // known guilds need to return their values
-			let out : GuildData;
+			let out = defaultGuildData;
 			out.disabled = rows[0].disabled;
 			return out;
 		}
