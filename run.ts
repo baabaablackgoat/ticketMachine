@@ -132,24 +132,57 @@ const allCommands: Array<Discord.ApplicationCommandData> = [
 	}
 ];
 
-async function registerSlashCommands() {
-	// to run once on startup, and maybe to allow re-doing this in later patches (re-deploy from cli maybe?)
-	let knownGuilds = await client.guilds.fetch();
-	knownGuilds.forEach(guild => {
-		guild.fetch()
-			.then(guild => {
-				guild.commands.set(allCommands)
-					.then(setCommands => {
-						log(`Slash commands registered in guild ${guild.name} (${guild.id})`);
-					})
-					.catch(err => {
-						if (err.message.includes('Missing Access')) {
-							warn(err, `Slash commands rejected by guild ${guild.name} (${guild.id}) - Re-authenticate the bot in this guild with slash commands enabled.`);
-						}
-						warn(err, `Slash commands couldn't be registered in guild ${guild.name} (${guild.id})`);
-					});
-			})
-	});
+async function registerSlashCommands(targetGuild?: Discord.Guild) {
+	if (targetGuild) { // only register slash commands for this one guild (like on guild join).
+		slashCommandRegistrar(targetGuild);
+		//Check if the guild is disabled and reenable it, assume this only runs on specific guilds that *want* commands
+		const guildDbData = await db.checkGuildStatus(targetGuild.id);
+		if (guildDbData.disabled) db.setGuildStatus(targetGuild.id, {disabled: false});
+	} else { // fetch all known guilds, check if they have requested slash commands to be disabled, and then register slash commands
+		let clientGuilds = await client.guilds.fetch();
+		clientGuilds.forEach(async (guild) => {
+			const guildDbData = await db.checkGuildStatus(guild.id);
+			if (guildDbData.disabled) {
+				info(`${guild.name} has requested to be disabled, skipping.`);
+			} else {
+				guild.fetch().then(guild => slashCommandRegistrar(guild))
+			}
+		});
+	}
+}
+
+async function slashCommandRegistrar(targetGuild: Discord.Guild) {
+	if (!targetGuild) {
+		err('No target guild was supplied to slashCommandRegistrar to register slash commands for.')
+		return;
+	}
+	targetGuild.commands.set(allCommands)
+		.then(setCommands => {
+			ok(`Slash commands registered in guild ${targetGuild.name} (${targetGuild.id})`);
+		})
+		.catch(err => {
+			if (err.message.includes('Missing Access')) {
+				warn(err, `Slash commands rejected by guild ${targetGuild.name} (${targetGuild.id}) - Re-authenticate the bot in this guild with slash commands enabled.`);
+			}
+			warn(err, `Slash commands couldn't be registered in guild ${targetGuild.name} (${targetGuild.id})`);
+		});
+}
+
+async function removeSlashCommands(targetGuild: Discord.Guild) { // also assumes that the guild does not want further slash commands.
+	if (!targetGuild) {
+		err('No target guild was supplied while trying to remove slash commands.')
+		return;
+	}
+	targetGuild.commands.set([])
+		.then(setCommands => {
+			ok(`Guild ${targetGuild.name} has requested to disable the bot commands. Marking as disabled.`);
+			try {
+				db.setGuildStatus(targetGuild.id, {disabled: true});
+			} catch (e) {
+				warn(e, `An error occured while marking a guild as disabled.`)
+			}
+		})
+
 }
 
 client.on('ready', () => {
@@ -181,6 +214,10 @@ client.on('ready', () => {
 
 	// event expiry interval
 	const expiredEventCheckInterval = setInterval(checkForExpiredEvents, 60*1000);
+});
+
+client.on('guildCreate', guild => { // if bot is detected joining a server, attempt to register slash commands (automatically also puts it in the guilds db)
+	registerSlashCommands(guild);
 });
 
 client.on('interactionCreate', interaction => {

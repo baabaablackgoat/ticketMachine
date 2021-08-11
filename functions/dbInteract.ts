@@ -56,6 +56,45 @@ async function checkDBIntegrity() {
 	}
 }
 
+// Guilds can have the bot stop registering slash commands and have it reenable itself.
+interface GuildData {
+	disabled: boolean;
+}
+const defaultGuildData : GuildData = {
+	disabled: false
+};
+export async function checkGuildStatus(guildID: Discord.Snowflake) : Promise<GuildData> {
+	let con: MariaDB.PoolConnection;
+	try {
+		con = await pool.getConnection();
+		const rows = await con.query('SELECT * FROM guilds WHERE guildID = ?', [guildID]);
+		if (rows.length == 0) { // unknown/"new" guilds get registered with default values
+			await con.query('INSERT INTO guilds (guildID, disabled) VALUES (?, ?)', [guildID, defaultGuildData.disabled])
+			info(`Previously unknown guild with ID ${guildID} has been initialized with default values.`);
+			return defaultGuildData;
+		} else { // known guilds need to return their values
+			let out : GuildData;
+			out.disabled = rows[0].disabled;
+			return out;
+		}
+	} catch (e) { throw new Error(`DB Error occured during checkGuildStatus: ${e}`); }
+	finally { if (con) con.release(); }
+}
+
+export async function setGuildStatus(guildID: Discord.Snowflake, data?: GuildData) {
+	let con: MariaDB.PoolConnection;
+	if (!data) data = defaultGuildData;
+	try {
+		con = await pool.getConnection();
+		const res = await con.query("INSERT INTO guilds (guildID, disabled) VALUES (?, ?) ON DUPLICATE KEY UPDATE disabled = ?", [guildID, data.disabled, data.disabled]);
+		if (res.warningStatus && res.warningStatus != 0) warn(`Something went wrong while attempting to set the guild status, warningStatus was ${res.warningStatus}`);
+		else info(`Guild status for ${guildID} was created or updated.`);
+	} catch (e) { throw new Error(`DB Error occured during setGuildStatus: ${e}`); }
+	finally { if (con) con.release(); }
+}
+
+// Ticket Machine General DB commands start here
+
 export async function getUserTicketCount(user: Discord.User) : Promise<number> {
 	let con: MariaDB.PoolConnection;
 	try {
